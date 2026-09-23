@@ -1,69 +1,145 @@
-# Hoshi Music 1.4.5
+# Hoshi Music
 
-Pemutar musik Android **lokal, pribadi, tanpa iklan, tanpa akun, dan tanpa izin jaringan (INTERNET/ACCESS_NETWORK_STATE)**.
+Pemutar musik Android **lokal, pribadi, tanpa iklan, tanpa akun, dan tanpa izin jaringan** (tanpa `INTERNET` / `ACCESS_NETWORK_STATE`).
 
-- Application ID: `com.naomi.hoshimusic`
-- Minimum Android: 8.0 / API 26
-- Target / compile SDK: 35
-- Bahasa: Kotlin + Jetpack Compose
-- Playback: AndroidX Media3 / ExoPlayer + `MediaSessionService`
-- DSP Engine: Native C++ (High-Performance 32-bit Float Processing)
-- Filosofi: **Offline-First AI Synergy** — Kekuatan AI luar (Gemini/GPT) dalam balutan privasi total.
+## Informasi Build
 
-## Patch Note (V1.4.5)
-- **Boutique Cleanup**: Removal of redundant 'Orphan' files and consolidated quality logic for 100% architectural purity.
-- **Unified Quality Engine**: Synchronized HI-RES and LOSSLESS detection across all UI components (Hero Cards & Song Rows).
-- **Project Hygiene**: Cleaned up duplicate 'LrcParseResult' definitions and empty legacy directories.
-- **Stable Navigation**: Refined back-navigation logic to prevent accidental app closure on sub-screens.
-- **Exclusive Path Polish**: Implemented hardware priming to ensure seamless playback on Vivo/iQOO high-res paths.
+| Komponen | Detail |
+|---|---|
+| **Versi** | 1.4.6 |
+| **Version Code** | 21 |
+| **Application ID** | `com.naomi.hoshimusic` |
+| **Min Android** | 8.0 / API 26 |
+| **Target / Compile SDK** | 35 |
+| **NDK** | 26.1.10909125 |
+| **Bahasa** | Kotlin + Jetpack Compose (Material 3) |
+| **Modul** | `:app` (Android), `:shared` (KMP Compose Multiplatform) |
 
-## Patch Note (V1.4.4)
-- **Boutique Bypass Toggle**: Switchable high-priority 'Game' routing to force-disable OEM effects (SKTune/Dolby).
-- **Master Compatibility**: Forced 48kHz resampling for non-FLAC formats (MP3/OGG) to ensure zero-silence on exclusive paths.
-- **Engine Self-Awareness**: Metadata & Parser versioning to automatically re-scan library when logic improves.
-- **Linguistic Engine**: Added support for Unsynchronized (Plain-Text) embedded lyrics with smart order preservation.
-- **Search Harmony**: Refreshed Search UI with consistent 100.dp top bar, modern pill shape, and bounce feedback.
-- **Performance Hygiene**: Fixed 'Duplicate Key' crashes and 'Ghost Tracks' resource leaks.
-- **Fluid Motion**: Added high-end slide-and-fade transitions for the Linguistic Workbench.
+## Fitur Utama
 
-## Fitur Unggulan (V1.2.0)
+### 🎶 Pemutaran Musik Lokal
+- Memindai perpustakaan musik dari **MediaStore** secara otomatis
+- **Media3 ExoPlayer** dengan **MediaSessionService** (foreground service)
+- Dukungan format: MP3, FLAC, WAV, M4A, AAC, OGG, Opus, ALAC, WMA, DSF, DFF
+- Kontrol lengkap: mainkan, jeda, skip next/previous, shuffle, repeat, volume, kecepatan pemutaran, seek
+- Playlist queue dengan drag-and-drop reorder
 
-### 🛠️ Linguistic Workbench (AI Editor)
-- **Fullscreen AI Editor**: Lingkungan kerja profesional untuk mengoreksi lirik. Pisahkan antara koleksi (kiri) dan editor grid (kanan).
-- **AI Bridge**: Tombol satu-sentuh untuk menyalin prompt puitis ke Gemini/ChatGPT dan fitur "Paste dari Clipboard" yang cerdas.
-- **Universal Parser**: Mendukung berbagai format timestamp AI (`[00:10.00]`, `10000:`, dll) secara otomatis.
-- **Dynamic Fallback**: Gunakan terjemahan manual untuk baris sulit, dan biarkan lirik asli untuk sisanya.
+### 🎛️ DSP Engine Native (C++)
+- Mesin DSP berperforma tinggi **32-bit Float Processing** via C++ (`hoshi_dsp`)
+- **PEQ 10-Band** (Parametric Equalizer) dengan profil tersimpan
+- **Crossfeed**, **Limiter**, **Bass Boost**
+- **Spatial Audio** 3 mode: Standar (Binaural), Lebar (Stage), Studio (Close)
+- **Ambience** (tambahan ruang suara)
+- **ReplayGain** (pembacaan tag track/album gain & peak)
+- **Preamp** (penyesuaian gain input dB)
+- **Boutique Bypass** — bypass paksa efek OEM (SKTune/Dolby) dengan routing prioritas tinggi
 
-### 🎶 Lyrics Rendering & Advanced Sync
-- **Official SYLT Support**: Native binary synchronized lyrics decoding (ID3v2 standard).
-- **Instant Loading**: High-speed metadata parsing with automated dictionary warm-up.
-- **Responsive Instrumental Trigger**: Unified logic for the ♪ marker across all views with zero latency.
-- **Furigana-Style Stack**: Tampilan bilingual yang dioptimalkan — Terjemahan/Romaji (Biru) kini berada di **ATAS** lirik asli (Putih).
-- **Exclusive Preview**: Preview lirik di beranda otomatis berubah menjadi terjemahan/romaji murni saat diaktifkan, meminimalkan gangguan visual.
-- **Zero-Blank Fix**: Algoritma baru untuk menangani morfem Kanji Jepang yang terpecah oleh token LRC word-level, memastikan tidak ada baris kosong.
-- **Responsive Focus**: Auto-scroll kembali ke penyanyi setelah 3,5 detik jeda interaksi, bahkan saat bagian instrumen (♪).
+### 📝 Lirik & Romanisasi
+- **Parser LRC** (versi 3) dengan validasi cache invalidation
+- **Dukungan SYLT** (synchronized lyrics binary, standar ID3v2)
+- **Romanisasi** multi-bahasa: Mandarin (Han-Latin + Pinyin), Jepang (Kuromoji), Korea, Inggris
+- **Furigana per-token** untuk lirik Jepang (karaoke akurat tanpa ICU)
+- **Terjemahan bilingual** (lirik asli + terjemahan)
+- **Zero-Blank Fix** — algoritma penanganan morfem Kanji terpecah untuk mencegah baris kosong
 
-### 🚀 Optimasi Performa "Butter Smooth"
-- **Memoized Math**: Seluruh logika pengelompokan Album, Artis, dan Genre kini di-cache (memoized), menghilangkan stutter saat scrolling koleksi besar.
-- **State Throttling**: Optimasi sistem "heartbeat" untuk mengurangi beban CPU dan menghemat baterai tanpa mengorbankan akurasi sinkronisasi.
-- **Scroll Memory**: App mengingat posisi scroll terakhir kamu di tab Koleksi, bahkan setelah membuka dan menutup pemutar.
+### ✍️ Translation Workbench (Koreksi Lirik)
+- Editor profesional untuk mengoreksi lirik dan terjemahan
+- Pisahkan antara koleksi (kiri) dan editor grid (kanan)
+- Transisi animasi slide-and-fade
 
-### 🔒 Privasi dan Keamanan Total
-- **Tanpa Izin Jaringan**: Menjamin 100% data tidak pernah meninggalkan perangkat (Zero Network Permissions).
-- **Offline Total**: Penghapusan dependensi Google ML Kit untuk memperkecil ukuran APK dan menghentikan pengecekan model di latar belakang.
-- **Data Lokal**: Playlist, koreksi lirik, dan statistik disimpan di database Room lokal yang aman.
+### 📂 Playlist
+- **Impor/ekspor M3U/M3U8** via Storage Access Framework (SAF)
+- Playlist lokal (m3u8), Saved Queue, serta statistik pemutaran (play count, last played)
+- Folder musik kustom (pilih folder via SAF dengan persistable permission)
+
+### 🔍 Manajemen Library
+- Pencarian berdasarkan query teks
+- Tandai favorit & sembunyikan folder tertentu
+- Filter lagu pendek (short track filter)
+- Info detail: audio format, metadata, embedded artwork
+
+### 🔵 Bluetooth & Audio Routing
+- Deteksi perangkat Bluetooth (nama & codec detection)
+- **Bluetooth Clarity Monitor** — pemantauan routing clarity
+- **Wired Routing Manager** — manajemen output audio wired
+- **Boutique Bypass** dengan forced sample rate matching (min 48kHz untuk format non-FLAC)
+
+### ⚙️ Pengaturan
+- **Tema**: Dynamic Color, Dark/Light/System, tema kustom
+- **DSP Presets**: Simpan, hapus, dan atur profil PEQ custom
+- **Spatial Audio Presets**: Pilih dari 3 mode
+- **Romanisasi** & **Mode Terjemahan**: Aktif/nonaktifkan per lagu
+- **Gapless playback**, **Normalisasi audio**, **Playback speed**
+- **Priority lyric source**: Atur prioritas sumber lirik
+- **Landscape dual-pane** mode (tablet)
+
+### 🔒 Privasi Total
+- **Tanpa izin jaringan**: `INTERNET` dan `ACCESS_NETWORK_STATE` **tidak ada** di manifest
+- `android:allowBackup="false"` — data tidak di-backup ke cloud
+- **Offline total**: semua data tersimpan lokal (Room DB, DataStore, file)
+- `backup_rules.xml` dan `data_extraction_rules.xml` dibersihkan mencegah backup data sensitif
 
 ## Struktur Proyek
 
-- `app/src/main/cpp/` — Mesin DSP Native C++ (PEQ, Crossfeed, Limiter).
-- `data/` — Implementasi MediaStore, Room DB (termasuk Translation Overrides), dan LRC Parser.
-- `playback/` — Media3 Session, Audio Route Monitor, dan JNI Bridge.
-- `ui/` — Komponen Jetpack Compose, M3 Theming, dan Linguistic Workbench.
-- `worker/` — Background tasks untuk pemindaian metadata dan loudness.
+```
+app/                          # Modul Android utama
+├── src/main/
+│   ├── cpp/                  # DSP Native C++ (hoshi_dsp_core)
+│   ├── java/                 # Kotlin source code
+│   │   ├── playback/         # MediaSessionService, ExoPlayer, DSP bridge, routing
+│   │   ├── data/             # Repository, LRC parser, Room DB, lyrics, metadata
+│   │   ├── ui/               # Compose UI, navigation, settings, player, themes
+│   │   └── util/             # Romanizer, formatters, helpers
+│   └── res/                  # Resources, themes, icons
+shared/                       # Modul KMP Compose Multiplatform
+├── src/commonMain/           # Expect declarations (AudioPlayer, SongRepository, etc.)
+├── src/androidMain/          # Android actual implementations
+└── build.gradle.kts          # Android + Compose Multiplatform targets
+gradle/                       # Gradle wrapper & version catalog
+```
+
+### Alur Data
+
+```text
+MediaStore ──> MusicRepository ──> LibraryViewModel ──> Compose Library
+                                        │
+DataStore <── UserPreferences <────────┤
+                                        │
+M3U / LRC / ReplayGain <───────────────┘
+
+Compose Player ──> PlaybackViewModel ──> MediaController
+                                           │
+                                           v
+                                MusicPlaybackService
+                                           │
+                                      ExoPlayer
+                                           │
+                                HoshiDspProcessor (C++ JNI)
+```
+
+### Navigasi
+
+| Tab | Label | Fungsi |
+|---|---|---|
+| 🏠 Home | Beranda | Perpustakaan musik, lirik, mini player |
+| 📚 Library | Koleksi | Daftar lagu, playlist, filter, pencarian |
+| ⚙️ Settings | Atur | DSP, tema, privacy, audio routing |
+| ✍️ Workbench | Koreksi | Translation Workbench editor lirik |
 
 ## Cara Compile
 
-1. Instal Android Studio versi stabil terbaru.
-2. Pastikan NDK 26.1.10909125 tersedia.
-3. Build APK Debug: `./gradlew :app:assembleDebug`
-4. Jalankan Unit Test: `./gradlew :app:testDebugUnitTest`
+1. Instal **Android Studio** versi stabil terbaru.
+2. Pastikan **NDK 26.1.10909125** tersedia (SDK Manager → SDK Tools).
+3. Sync Gradle.
+4. Build APK Debug:
+   ```bash
+   ./gradlew :app:assembleDebug
+   ```
+5. Jalankan Unit Test:
+   ```bash
+   ./gradlew :app:testDebugUnitTest
+   ```
+
+## Lisensi
+
+MIT License — lihat [LICENSE](LICENSE)
