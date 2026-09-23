@@ -1,0 +1,39 @@
+# Hoshi Music Baseline Profile
+# Critical classes for App Startup and UI Performance
+
+# Core App Structure
+Lcom/naomi/hoshimusic/MainActivity;
+Lcom/naomi/hoshimusic/ui/HoshiMusicAppKt;
+Lcom/naomi/hoshimusic/ui/theme/HoshiMusicThemeKt;
+
+# Playback Engine (Critical for instant play)
+Lcom/naomi/hoshimusic/playback/MusicPlaybackService;
+Lcom/naomi/hoshimusic/ui/PlaybackViewModel;
+Landroidx/media3/exoplayer/ExoPlayer;
+Landroidx/media3/session/MediaSession;
+
+# UI Components (Critical for scrolling and transitions)
+Lcom/naomi/hoshimusic/ui/LibraryContentKt;
+Lcom/naomi/hoshimusic/ui/PlayerContentKt;
+Lcom/naomi/hoshimusic/ui/HomeContentKt;
+Lcom/naomi/hoshimusic/ui/SharedUiKt;
+Lcom/naomi/hoshimusic/ui/MotionComponentsKt;
+
+# Data Layer (Critical for instant library load)
+Lcom/naomi/hoshimusic/data/MusicRepository;
+Lcom/naomi/hoshimusic/data/db/HoshiDatabase;
+Lcom/naomi/hoshimusic/data/db/MusicDao;
+Landroidx/room/Room;
+
+# Image Loading
+Lcoil/compose/AsyncImageKt;
+
+# Compose Internals (General optimization)
+Landroidx/compose/foundation/lazy/LazyColumnKt;
+Landroidx/compose/animation/AnimatedContentKt;
+Landroidx/compose/animation/SharedTransitionLayoutKt;
+
+# Optimization for common methods
+HSPLcom/naomi/hoshimusic/ui/PlaybackViewModel;->syncState()V
+HSPLcom/naomi/hoshimusic/data/MusicRepository;->loadSongs()Ljava/lang/Object;
+HSPLcom/naomi/hoshimusic/ui/PlayerContentKt;->NowPlayingScreen(...)V

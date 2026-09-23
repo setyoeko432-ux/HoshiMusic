@@ -1,0 +1,32 @@
+# IDE / Editor
+.idea/
+*.iml
+*.iws
+.vscode/
+
+# Build outputs
+build/
+*/build/
+app/build/
+shared/build/
+app/.cxx/
+app/release/
+bin/
+gen/
+out/
+
+# Local configuration (DO NOT SHARE)
+local.properties
+.gradle/
+.kotlin/
+captures/
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Project specific & Temporary
+.artifacts/
+training_results.txt
+translator_robustness_results.txt
+SHA256SUMS.txt
