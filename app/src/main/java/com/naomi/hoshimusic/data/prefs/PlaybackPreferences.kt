@@ -23,6 +23,7 @@ internal class PlaybackPreferences(private val dataStore: DataStore<Preferences>
     val autoSkipIntroOutro: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.AutoSkipIntroOutro] ?: false }
     val boutiqueBypassEnabled: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.BoutiqueBypassEnabled] ?: false }
     val wiredBitPerfectPreferred: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.WiredBitPerfectPreferred] ?: false }
+    val lowLatencyAudio: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.LowLatencyAudio] ?: false }
 
     suspend fun setGaplessEnabled(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.GaplessEnabled] = enabled }
     suspend fun setNormalizationEnabled(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.NormalizationEnabled] = enabled }
@@ -34,5 +35,6 @@ internal class PlaybackPreferences(private val dataStore: DataStore<Preferences>
     suspend fun setAutoSkipIntroOutro(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.AutoSkipIntroOutro] = enabled }
     suspend fun setBoutiqueBypassEnabled(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.BoutiqueBypassEnabled] = enabled }
     suspend fun setWiredBitPerfectPreferred(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.WiredBitPerfectPreferred] = enabled }
+    suspend fun setLowLatencyAudio(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.LowLatencyAudio] = enabled }
     suspend fun setLyricSourcePriority(priority: LyricSourcePriority) = dataStore.edit { it[PreferenceKeys.LyricPriority] = priority.ordinal }
 }

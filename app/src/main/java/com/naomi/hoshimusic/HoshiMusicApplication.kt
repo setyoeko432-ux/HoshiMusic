@@ -13,10 +13,19 @@ import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.request.Options
 import com.naomi.hoshimusic.data.EmbeddedArtworkLoader
+import com.naomi.hoshimusic.util.DiagLog
 import okio.Buffer
 import java.io.ByteArrayOutputStream
 
 class HoshiMusicApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        // WAJIB paling awal: logd diblokir oleh sebagian OEM untuk UID app
+        // pihak ketiga, sehingga android.util.Log tidak bisa dipakai sebagai
+        // sumber diagnosis. Lihat DiagLog untuk cara membacanya.
+        DiagLog.init(this)
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .components {

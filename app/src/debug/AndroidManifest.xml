@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifest untuk build DEBUG saja.
+
+  Audio pipeline trace kit seluruhnya berada di source set `src/debug`, jadi
+  TIDAK PERNAH ikut ke APK rilis. Receiver di bawah juga tidak ada di rilis.
+
+  CATATAN PENTING SOAL `exported`
+
+  Receiver HARUS `exported="true"` supaya bisa dipicu dari adb shell. Kenapa:
+
+    `adb shell am broadcast` berjalan sebagai UID `shell` (2000), sedangkan
+    aplikasi berjalan sebagai UID `u0_a455`. Receiver yang `exported="false"`
+    hanya menerima broadcast dari UID yang SAMA dengan dirinya. Hasilnya pada
+    percobaan pertama: `Broadcast completed: result=0` tapi receiver TIDAK PERNAH
+    dipanggil — tidak ada satu baris pun masuk ke hoshi_diag.log. Success dari
+    `am broadcast` hanya berarti intent terkirim, bukan berarti ada yang menangkap.
+
+  Apakah ini aman? Ya, dengan alasan berikut:
+
+    1. Hanya ada di build debug — yang tidak pernah dibagikan ke pengguna.
+    2. Receiver tidak melakukan apa pun yang merusak: ia hanya membaca file WAV
+       yang ada, menjalankan DSP di dalam prosesnya sendiri, lalu menulis laporan
+       ke storage privat aplikasinya. Tidak ada broadcast ke luar, tidak ada
+       perubahan preferensi, tidak ada interaksi dengan playback yang sedang
+       berjalan.
+    3. Tag `com.naomi.hoshimusic.PROBE` ini obscurity, bukan keamanan — filter
+       action memang bisa ditebak. Keamanan sesungguhnya datang dari
+       (a) build debug dan (b) laporan yang ditulis ke storage privat.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <receiver
+            android:name=".diag.ProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.naomi.hoshimusic.PROBE" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

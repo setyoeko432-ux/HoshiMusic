@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -47,7 +48,10 @@ class MetadataWorker(
 
     private val database = HoshiDatabase.getDatabase(context)
     private val musicDao = database.musicDao()
+    private val aiTagsDao = database.aiTagsDao()
     private val reader = AudioMetadataReader(context)
+    private val classifierEngine = com.naomi.hoshimusic.data.metadata.AudioClassifierEngine(context)
+    private val userPreferences = com.naomi.hoshimusic.data.UserPreferences(context)
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         // [V31]: Force metadata re-scan if TagEngine version increased
@@ -126,6 +130,29 @@ class MetadataWorker(
 
                                 if (entity.languageOverride == null) {
                                     scanned = MediaMapper.processMetadata(scanned)
+                                }
+
+                                // [P3]: Smart AI Tagging (Non-Realtime / Background scan)
+                                try {
+                                    val aiEnabled = userPreferences.aiTaggingEnabled.firstOrNull() ?: true
+                                    if (aiEnabled && entity.absolutePath != null) {
+                                        val file = java.io.File(entity.absolutePath)
+                                        val aiRes = classifierEngine.classifyAudioFile(file)
+                                        aiTagsDao.insertOrUpdateTags(
+                                            com.naomi.hoshimusic.data.db.SongAiTags(
+                                                songMediaId = entity.mediaId,
+                                                predictedGenre = aiRes.predictedGenre,
+                                                genreConfidence = aiRes.confidence,
+                                                bpmDetected = aiRes.bpm,
+                                                keyDetected = aiRes.key,
+                                                analysisStatus = aiRes.status,
+                                                analyzedAtMs = System.currentTimeMillis(),
+                                                isOffline = true
+                                            )
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "AI tagging skipped for ${entity.mediaId}: ${e.message}")
                                 }
 
                                 when (deep.status) {

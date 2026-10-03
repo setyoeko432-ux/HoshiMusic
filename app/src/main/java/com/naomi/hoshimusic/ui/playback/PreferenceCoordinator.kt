@@ -3,6 +3,7 @@ package com.naomi.hoshimusic.ui.playback
 import com.naomi.hoshimusic.data.*
 import com.naomi.hoshimusic.playback.route.BtClarityBridge
 import com.naomi.hoshimusic.playback.dsp.CustomDspPreset
+import com.naomi.hoshimusic.playback.dsp.DspPreviewBridge
 import com.naomi.hoshimusic.playback.dsp.DspPresets
 import com.naomi.hoshimusic.ui.PlaybackUiState
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +23,8 @@ internal class PreferenceCoordinator(
     private val onSyncState: () -> Unit,
     private val onRecallPresetForRoute: (Map<String, String>) -> Unit
 ) {
+    private var lastActiveToggleMode: LyricDisplayMode = LyricDisplayMode.ROMANIZED
+
     fun setupObservers() {
         scope.launch {
             combine(
@@ -48,7 +51,8 @@ internal class PreferenceCoordinator(
                 preferences.routeProfiles,
                 preferences.translationMode,
                 preferences.autoSkipIntroOutro,
-                preferences.boutiqueBypassEnabled
+                preferences.boutiqueBypassEnabled,
+                preferences.lowLatencyAudio
             ) { values ->
                 values.copyOf() // Ensure we have a snapshot
             }
@@ -81,12 +85,19 @@ internal class PreferenceCoordinator(
                 val trans = v[21] as Boolean
                 val skip = v[22] as Boolean
                 val boutique = v[23] as Boolean
+                val lowLatency = v[24] as Boolean
 
                 val oldState = mutableUiState.value
                 val normalizationChanged = oldState.normalizationEnabled != norm
                 val lyricsInputChanged = oldState.romanizationEnabled != rom ||
                         oldState.lyricPriority != lPrio ||
                         oldState.translationMode != trans
+
+                if (rom) {
+                    lastActiveToggleMode = LyricDisplayMode.ROMANIZED
+                } else if (trans) {
+                    lastActiveToggleMode = LyricDisplayMode.TRANSLATED
+                }
 
                 val resolvedMode = when {
                     trans -> LyricDisplayMode.TRANSLATED
@@ -119,13 +130,14 @@ internal class PreferenceCoordinator(
                         translationMode = trans,
                         displayMode = resolvedMode,
                         autoSkipIntroOutro = skip,
-                        boutiqueBypassEnabled = boutique
+                        boutiqueBypassEnabled = boutique,
+                        lowLatencyAudioEnabled = lowLatency
                     )
                 }
                 
                 if (lyricsInputChanged) {
                     // LyricsRepository.load() menerima `romanize` dan `priority`, dan keduanya
-                    // ikut jadi cache key, jadi hasil lama tidak valid lagi. Reload ini murah
+                    // ikut jadi cache key, sehingga hasil lama tidak valid lagi. Reload ini murah
                     // kalau versi tersebut pernah dibuat.
                     oldState.mediaId?.let { onReloadEnhancements(it) }
                 }
@@ -145,15 +157,86 @@ internal class PreferenceCoordinator(
     fun setDynamicColorEnabled(e: Boolean) = scope.launch { preferences.setDynamicColorEnabled(e) }
     fun setAppTheme(t: Int) = scope.launch { preferences.setAppTheme(t) }
     fun setRomanizationEnabled(e: Boolean) = scope.launch { 
-        preferences.setRomanizationEnabled(e)
-        if (e) preferences.setTranslationMode(false)
+        if (e) {
+            lastActiveToggleMode = LyricDisplayMode.ROMANIZED
+            mutableUiState.update { it.copy(romanizationEnabled = true, translationMode = false, displayMode = LyricDisplayMode.ROMANIZED) }
+            preferences.setRomanizationEnabled(true)
+            preferences.setTranslationMode(false)
+        } else {
+            mutableUiState.update { it.copy(romanizationEnabled = false, displayMode = if (it.translationMode) LyricDisplayMode.TRANSLATED else LyricDisplayMode.ORIGINAL) }
+            preferences.setRomanizationEnabled(false)
+        }
     }
     fun setTranslationMode(e: Boolean) = scope.launch { 
-        preferences.setTranslationMode(e)
-        if (e) preferences.setRomanizationEnabled(false)
+        if (e) {
+            lastActiveToggleMode = LyricDisplayMode.TRANSLATED
+            mutableUiState.update { it.copy(translationMode = true, romanizationEnabled = false, displayMode = LyricDisplayMode.TRANSLATED) }
+            preferences.setTranslationMode(true)
+            preferences.setRomanizationEnabled(false)
+        } else {
+            mutableUiState.update { it.copy(translationMode = false, displayMode = if (it.romanizationEnabled) LyricDisplayMode.ROMANIZED else LyricDisplayMode.ORIGINAL) }
+            preferences.setTranslationMode(false)
+        }
+    }
+    fun cycleLyricDisplayMode() = scope.launch {
+        val state = mutableUiState.value
+        val currentMode = state.displayMode
+        val lines = state.lyrics.lines
+
+        val hasTranslation = lines.any { !it.translation.isNullOrBlank() }
+        val hasRomanization = lines.any { 
+            !it.romanizedText.isNullOrBlank() || it.tokens.any { t -> t.romanized != null } || it.text.contains("|")
+        }
+
+        val nextMode = when {
+            currentMode == LyricDisplayMode.ROMANIZED -> {
+                lastActiveToggleMode = LyricDisplayMode.ROMANIZED
+                LyricDisplayMode.ORIGINAL
+            }
+            currentMode == LyricDisplayMode.TRANSLATED -> {
+                lastActiveToggleMode = LyricDisplayMode.TRANSLATED
+                LyricDisplayMode.ORIGINAL
+            }
+            else -> {
+                when {
+                    lastActiveToggleMode == LyricDisplayMode.ROMANIZED && (hasRomanization || !hasTranslation) -> {
+                        LyricDisplayMode.ROMANIZED
+                    }
+                    lastActiveToggleMode == LyricDisplayMode.TRANSLATED && (hasTranslation || !hasRomanization) -> {
+                        LyricDisplayMode.TRANSLATED
+                    }
+                    hasRomanization -> {
+                        lastActiveToggleMode = LyricDisplayMode.ROMANIZED
+                        LyricDisplayMode.ROMANIZED
+                    }
+                    hasTranslation -> {
+                        lastActiveToggleMode = LyricDisplayMode.TRANSLATED
+                        LyricDisplayMode.TRANSLATED
+                    }
+                    else -> {
+                        lastActiveToggleMode = LyricDisplayMode.ROMANIZED
+                        LyricDisplayMode.ROMANIZED
+                    }
+                }
+            }
+        }
+
+        when (nextMode) {
+            LyricDisplayMode.ORIGINAL -> {
+                setRomanizationEnabled(false)
+                setTranslationMode(false)
+            }
+            LyricDisplayMode.ROMANIZED -> {
+                setRomanizationEnabled(true)
+            }
+            LyricDisplayMode.TRANSLATED -> {
+                setTranslationMode(true)
+            }
+        }
     }
     fun setAutoSkipIntroOutro(e: Boolean) = scope.launch { preferences.setAutoSkipIntroOutro(e) }
     fun setBoutiqueBypassEnabled(e: Boolean) = scope.launch { preferences.setBoutiqueBypassEnabled(e) }
+    fun setLowLatencyAudioEnabled(e: Boolean) = scope.launch { preferences.setLowLatencyAudio(e) }
     fun setLandscapeDualPaneEnabled(e: Boolean) = scope.launch { preferences.setLandscapeDualPaneEnabled(e) }
     fun setDspEnabled(e: Boolean) = scope.launch { preferences.setDspEnabled(e) }
     fun setPeqEnabled(e: Boolean) = scope.launch { preferences.setPeqEnabled(e) }
@@ -162,10 +245,18 @@ internal class PreferenceCoordinator(
         preferences.setDspPresetId(id)
         routeKey()?.let { preferences.setRouteProfileBinding(it, id) }
         
-        // Zero-latency: resolve params and push immediately via bridge
+       
+        // Zero-latency: resolve params and push immediately via bridge.
+        //
+        // [DEFECT 1] `customDspPresets.first()` menyuspend pada I/O DataStore.
+        // Kalau coroutine ini dibatalkan di tengah (sheet ditutup), preset
+        // SUDAH commit di baris pertama tapi array tidak pernah terpush.
+        // Bridge kini menyimpan `sourcePresetId`, jadi skenario itu aman:
+        // tanpa array, `DspConfigRepository` jatuh ke `resolveParams(presetId)`
+        // dan menghasilkan nilai yang sama persis.
         val customs = preferences.customDspPresets.first()
         val params = DspPresets.resolveParams(id, customs).toFloatArray()
-        com.naomi.hoshimusic.playback.dsp.DspPreviewBridge.setPreviewParams(params)
+        DspPreviewBridge.setPreviewParams(id, params)
     }
     
     fun setBtGuardMode(m: Int) = scope.launch { preferences.setBtGuardMode(m) }

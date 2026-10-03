@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.naomi.hoshimusic
 
 import android.Manifest

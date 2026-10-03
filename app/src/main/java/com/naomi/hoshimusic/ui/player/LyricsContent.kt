@@ -76,7 +76,7 @@ internal fun FullscreenLyricsView(
     var lastInteractionTime by remember { mutableLongStateOf(0L) }
     
     val smoothPositionState = rememberSmoothPosition(
-        realPosition = positionState.value,
+        realPositionState = positionState,
         isPlaying = state.isPlaying,
         playbackSpeed = state.playbackSpeed
     )
@@ -328,13 +328,13 @@ internal fun LyricsPreviewSection(
     isPlaying: Boolean,
     playbackSpeed: Float,
     viewModel: PlaybackViewModel,
-    onToggleRomanization: (Boolean) -> Unit,
+    onCycleDisplayMode: () -> Unit = {},
     onEnterLyricsMode: () -> Unit
 ) {
     val presState by viewModel.presentationState.collectAsStateWithLifecycle()
     
     val smoothPositionState = rememberSmoothPosition(
-        realPosition = positionState.value,
+        realPositionState = positionState,
         isPlaying = isPlaying,
         playbackSpeed = playbackSpeed
     )
@@ -377,7 +377,7 @@ internal fun LyricsPreviewSection(
                 onClick = { },
                 onDoubleClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleRomanization(displayMode != LyricDisplayMode.ROMANIZED)
+                    onCycleDisplayMode()
                 },
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -417,7 +417,6 @@ internal fun LyricsPreviewSection(
                 } else {
                     val rawSecondary = when (mode) {
                         LyricDisplayMode.TRANSLATED -> line.translation?.trim()
-                        LyricDisplayMode.ROMANIZED -> line.resolvedRomanizedText()
                         else -> null
                     }
                     val secondaryText = sanitizeLyricText(rawSecondary)
@@ -427,7 +426,7 @@ internal fun LyricsPreviewSection(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         if (!secondaryText.isNullOrBlank()) {
-                            // Enhancement exists: show ONLY the enhancement in primary style
+                            // Enhancement exists (Translation): show translation
                             Text(
                                 text = secondaryText,
                                 textAlign = TextAlign.Center,
@@ -436,7 +435,7 @@ internal fun LyricsPreviewSection(
                                 color = Color.White
                             )
                         } else {
-                            // No enhancement: show original
+                            // Romaji mode or Original mode: use buildLyricAnnotatedString for karaoke support
                             val annotatedText = buildLyricAnnotatedString(
                                 line = line,
                                 currentPositionMs = smoothPositionState.value,

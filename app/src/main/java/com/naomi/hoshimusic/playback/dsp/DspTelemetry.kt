@@ -23,5 +23,35 @@ data class DspTelemetry(
     val appliedPeqRevision: Int = 0,
     val nativeInitialized: Boolean = false,
     val dominantBand: String = "PRISTINE BRIGHT",
-    val sampleRate: Int = 44100
+    val sampleRate: Int = 44100,
+    /**
+     * TRACE: crossfade wet/dry rantai adaptive.
+     *
+     * Nilai ~0 berarti `processFrame()` dijalankan tapi hasilnya dicampur
+     * kembali ke sinyal kering, sehingga output identik dengan input. Ini
+     * satu-satunya cara DSP "diproses tapi tidak terdengar".
+     */
+    val adspWet: Float = 0f,
+    /** [TRACE] Atomik `adaptiveDspEnabled` yang dibaca sisi native. */
+    val adspEnabled: Boolean = false,
+    /** [TRACE] Gain pre-gain AGC yang sudah merambat. */
+    val agcPreGain: Float = 1f,
+    /** [TRACE] State detektor AGC — source of truth untuk targetPreGain. */
+    val slowRms: Float = 0.1f,
+    /** [TRACE] Nilai `l` tepat saat masuk loop process() (preamp sudah
+     *  diaplikasikan, sebelum filter apapun) — verifikasi buffer masuk
+     *  benar-benar berisi PCM, bukan kosong/0. */
+    val dbgLAtEntry: Float = 0f,
+    /** [TRACE] Nilai `l` tepat sebelum detektor AGC — bila ~0 padahal
+     *  output bukan nol, berarti rantai filter merusak/menghilangkan sinyal. */
+    val dbgLAtDetector: Float = 0f,
+    /** [TRACE] Nilai wet persis pada saat crossfade dihitung — bila 1.0
+     *  tapi output masih identik input, berarti filter tidak mengubah sinyal. */
+    val dbgWetAtCrossfade: Float = 0f,
+    /** [TRACE] Koefisien shelf bass statis: M0/M1 dari TPT low-shelf dan
+     *  G = tan(PI*fc/fs)*sqrt(a). M0 != 1 berarti shelf aktif. */
+    val dbgShelfM0: Float = 0f,
+    val dbgShelfM1: Float = 0f,
+    val dbgShelfG: Float = 0f,
+    val medRms: Float = 0.1f
 )

@@ -196,7 +196,47 @@ fun rememberSmoothPosition(
     }
 
     if (isPlaying) {
-        LaunchedEffect(Unit) {
+        LaunchedEffect(playbackSpeed) {
+            var lastFrameTime = withFrameMillis { it }
+            while (true) {
+                withFrameMillis { frameTime ->
+                    val diff = frameTime - lastFrameTime
+                    lastFrameTime = frameTime
+                    smoothPosition.longValue += (diff * playbackSpeed).toLong()
+                }
+            }
+        }
+    }
+
+    return smoothPosition
+}
+
+/**
+ * Varian yang menerima [State] sumber dan membacanya di dalam coroutine,
+ * bukan saat komposisi.
+ *
+ * Varian yang menerima nilai `realPosition: Long` memaksa pemanggil menulis
+ * `positionState.value` di body composable. Position flow berdetak tiap 100 ms, jadi setiap detakan
+ * membatalkan seluruh subtree yang memakainya — LazyColumn, scroll effect,
+ * derivedState, pager — walau animasinya sendiri berbasis frame. Di sini
+ * pembacaan dipindah ke dalam snapshotFlow sehingga hanya state posisi ini
+ * yang berubah, sesuai irama frame.
+ */
+@Composable
+fun rememberSmoothPosition(
+    realPositionState: State<Long>,
+    isPlaying: Boolean,
+    playbackSpeed: Float = 1f
+): State<Long> {
+    val smoothPosition = remember { mutableLongStateOf(realPositionState.value) }
+
+    LaunchedEffect(realPositionState) {
+        snapshotFlow { realPositionState.value }
+            .collect { smoothPosition.longValue = it }
+    }
+
+    if (isPlaying) {
+        LaunchedEffect(playbackSpeed) {
             var lastFrameTime = withFrameMillis { it }
             while (true) {
                 withFrameMillis { frameTime ->

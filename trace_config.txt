@@ -1,0 +1,23 @@
+buffers: {
+  size_kb: 102400
+  fill_policy: RING_BUFFER
+}
+data_sources: {
+  config {
+    name: "android.surfaceflinger"
+  }
+}
+data_sources: {
+  config {
+    name: "linux.ftrace"
+    ftrace_config {
+      ftrace_events: "audio.audio_hw"
+      ftrace_events: "audio.audio_flinger"
+      ftrace_events: "binder_driver"
+      ftrace_events: "workqueue"
+      ftrace_events: "cpu_frequency"
+    }
+  }
+}
+duration_ms: 60000
+write_into_file: true

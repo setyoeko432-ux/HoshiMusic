@@ -3,6 +3,7 @@
     androidx.compose.animation.ExperimentalSharedTransitionApi::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class
 )
+@file:androidx.media3.common.util.UnstableApi
 
 package com.naomi.hoshimusic.ui
 
@@ -520,6 +521,8 @@ private fun LibraryHome(
                             onToggleAutoSkip = { playbackViewModel.setAutoSkipIntroOutro(it) },
                             boutiqueBypassEnabled = playbackState.boutiqueBypassEnabled,
                             onToggleBoutiqueBypass = { playbackViewModel.setBoutiqueBypassEnabled(it) },
+                            lowLatencyAudioEnabled = playbackState.lowLatencyAudioEnabled,
+                            onToggleLowLatencyAudio = { playbackViewModel.setLowLatencyAudioEnabled(it) },
                             routeProfiles = routeProfiles,
                             onClearRouteProfiles = onClearRouteProfiles,
                             onActiveMainScreenChange = onActiveMainScreenChange

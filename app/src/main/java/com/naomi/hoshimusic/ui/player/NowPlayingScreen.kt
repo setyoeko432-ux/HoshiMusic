@@ -106,7 +106,7 @@ internal fun NowPlayingScreen(
             .sharedBounds(
                 rememberSharedContentState(key = "active-player-container"),
                 animatedVisibilityScope = animatedVisibilityScope,
-                resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(ContentScale.Crop),
+                resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(ContentScale.Crop),
                 boundsTransform = AppMotion.PlayerBoundsTransform,
                 zIndexInOverlay = 1f
             )
@@ -225,13 +225,7 @@ internal fun NowPlayingScreen(
                                 onOpenInfo = { activeSheet = PlayerSheet.Info },
                                 onEnterLyricsMode = { isLyricsMode = true },
                                 displayMode = displayMode,
-                                onToggleRomanization = { enabled ->
-                                    if (enabled) viewModel.setRomanizationEnabled(true)
-                                    else {
-                                        viewModel.setRomanizationEnabled(false)
-                                        viewModel.setTranslationMode(false)
-                                    }
-                                },
+                                onCycleDisplayMode = { viewModel.cycleLyricDisplayMode() },
                                 onSeek = onSeek,
                                 onToggleShuffle = onToggleShuffle,
                                 onCycleRepeat = onCycleRepeat,
@@ -295,13 +289,7 @@ internal fun NowPlayingScreen(
                         onOpenInfo = { activeSheet = PlayerSheet.Info },
                         onEnterLyricsMode = { isLyricsMode = true },
                         displayMode = displayMode,
-                        onToggleRomanization = { enabled ->
-                            if (enabled) viewModel.setRomanizationEnabled(true)
-                            else {
-                                viewModel.setRomanizationEnabled(false)
-                                viewModel.setTranslationMode(false)
-                            }
-                        },
+                        onCycleDisplayMode = { viewModel.cycleLyricDisplayMode() },
                         onSeek = onSeek,
                         onToggleShuffle = onToggleShuffle,
                         onCycleRepeat = onCycleRepeat,

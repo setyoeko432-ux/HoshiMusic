@@ -8,14 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [SongEntity::class, LyricsCacheEntity::class, TranslationOverrideEntity::class], 
-    version = 12, 
+    entities = [SongEntity::class, LyricsCacheEntity::class, TranslationOverrideEntity::class, SongAiTags::class], 
+    version = 13, 
     exportSchema = true
 )
 abstract class HoshiDatabase : RoomDatabase() {
     abstract fun musicDao(): MusicDao
     abstract fun lyricsDao(): LyricsDao
     abstract fun translationOverrideDao(): TranslationOverrideDao
+    abstract fun aiTagsDao(): AiTagsDao
 
     companion object {
         @Volatile
@@ -83,6 +84,27 @@ abstract class HoshiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `song_ai_tags` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `songMediaId` TEXT NOT NULL,
+                        `predictedGenre` TEXT,
+                        `genreConfidence` REAL,
+                        `bpmDetected` INTEGER,
+                        `keyDetected` TEXT,
+                        `modelVersion` TEXT DEFAULT '1.0.0',
+                        `analysisStatus` TEXT NOT NULL DEFAULT 'PENDING',
+                        `analyzedAtMs` INTEGER NOT NULL DEFAULT 0,
+                        `isOffline` INTEGER NOT NULL DEFAULT 1,
+                        FOREIGN KEY(`songMediaId`) REFERENCES `songs`(`mediaId`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_song_ai_tags_songMediaId` ON `song_ai_tags` (`songMediaId`)")
+            }
+        }
+
         fun getDatabase(context: Context): HoshiDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -90,7 +112,7 @@ abstract class HoshiDatabase : RoomDatabase() {
                     HoshiDatabase::class.java,
                     "hoshi_music_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                 // Hapus destructive migration untuk melindungi statistik pengguna
                 .build()
                 INSTANCE = instance

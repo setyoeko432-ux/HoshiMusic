@@ -790,4 +790,68 @@ class HoshiMusicConsolidatedTest {
         val lines = LrcParser.parse(lrc)
         assertEquals(LyricAnnotationType.SEPARATOR, lines[0].annotationType)
     }
+
+    @Test
+    fun `test double tap cycle in Romaji toggle mode toggles between ORIGINAL and ROMANIZED`() = kotlinx.coroutines.test.runTest {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val sampleLine = LyricLine(timestampMs = 0L, text = "夜空", translation = "Langit Malam", romanizedText = "yozora")
+        val uiState = kotlinx.coroutines.flow.MutableStateFlow(PlaybackUiState(lyrics = LyricsResult(lines = listOf(sampleLine))))
+        
+        val coordinator = com.naomi.hoshimusic.ui.playback.PreferenceCoordinator(
+            scope = this,
+            preferences = UserPreferences(context),
+            mutableUiState = uiState,
+            onReloadEnhancements = {},
+            onApplyOutputVolume = {},
+            onSyncState = {},
+            onRecallPresetForRoute = {}
+        )
+
+        // 1. Enable Romaji toggle mode
+        coordinator.setRomanizationEnabled(true)
+        testScheduler.advanceUntilIdle()
+        assertEquals(LyricDisplayMode.ROMANIZED, uiState.value.displayMode)
+
+        // 2. Double tap (cycle mode) -> Switches to ORIGINAL (Lirik Asli)
+        coordinator.cycleLyricDisplayMode()
+        testScheduler.advanceUntilIdle()
+        assertEquals(LyricDisplayMode.ORIGINAL, uiState.value.displayMode)
+
+        // 3. Double tap again -> Switches back to ROMANIZED
+        coordinator.cycleLyricDisplayMode()
+        testScheduler.advanceUntilIdle()
+        assertEquals(LyricDisplayMode.ROMANIZED, uiState.value.displayMode)
+    }
+
+    @Test
+    fun `test double tap cycle in Terjemahan toggle mode toggles between ORIGINAL and TRANSLATED`() = kotlinx.coroutines.test.runTest {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val sampleLine = LyricLine(timestampMs = 0L, text = "夜空", translation = "Langit Malam", romanizedText = "yozora")
+        val uiState = kotlinx.coroutines.flow.MutableStateFlow(PlaybackUiState(lyrics = LyricsResult(lines = listOf(sampleLine))))
+        
+        val coordinator = com.naomi.hoshimusic.ui.playback.PreferenceCoordinator(
+            scope = this,
+            preferences = UserPreferences(context),
+            mutableUiState = uiState,
+            onReloadEnhancements = {},
+            onApplyOutputVolume = {},
+            onSyncState = {},
+            onRecallPresetForRoute = {}
+        )
+
+        // 1. Enable Translation toggle mode
+        coordinator.setTranslationMode(true)
+        testScheduler.advanceUntilIdle()
+        assertEquals(LyricDisplayMode.TRANSLATED, uiState.value.displayMode)
+
+        // 2. Double tap (cycle mode) -> Switches to ORIGINAL (Lirik Asli)
+        coordinator.cycleLyricDisplayMode()
+        testScheduler.advanceUntilIdle()
+        assertEquals(LyricDisplayMode.ORIGINAL, uiState.value.displayMode)
+
+        // 3. Double tap again -> Switches back to TRANSLATED
+        coordinator.cycleLyricDisplayMode()
+        testScheduler.advanceUntilIdle()
+        assertEquals(LyricDisplayMode.TRANSLATED, uiState.value.displayMode)
+    }
 }

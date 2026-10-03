@@ -301,6 +301,26 @@ internal fun PatchNotesDialog(onDismiss: () -> Unit) {
             LazyColumn {
                 item {
                     PatchVersionSection(
+                        version = "1.4.7",
+                        notes = listOf(
+                            "DSP Numerical Stability: -ffast-math dihapus dari flag NDK global. Filter IIR/biquad TptSvf dan DspEngine::processFrame() sensitif terhadap reassociation floating-point dan denormal handling, sehingga fast-math kini hanya diterapkan selektif per-fungsi yang aman.",
+                            "AI Audio Analysis: Tabel baru song_ai_tags menyimpan genre prediksi beserta confidence, BPM, nada dasar, versi model, status analisis, dan penanda offline. Database naik ke versi 13 dengan migrasi 12-13.",
+                            "Lyrics Double-Tap Cycling: Ketukan ganda kini memutar ORIGINAL <-> ROMANIZED atau ORIGINAL <-> TRANSLATED sesuai mode aktif, menggantikan toggle boolean dua arah.",
+                            "Low-Latency Audio: Setelan baru untuk latensi audio rendah, tersebar dari Settings sampai ViewModel.",
+                            "Audio Sink Tracing: HoshiAudioSink mencatat transisi play/pause/flush/reset beserta ended, hasPendingData, dan bufferSizeUs agar terlihat mengapa audio berhenti mengalir.",
+                            "Diagnostics Upgrade: DiagLog.w() kini menerima Throwable sebagai argumen ketiga.",
+                            "Route Fallback Naming: routeFallback() menangani penamaan route Bluetooth dan wired yang sebelumnya ambigu.",
+                            "Lyrical Vocal Bounds: refreshVocalBounds() memperbarui batas vokal untuk sinkronisasi highlight yang lebih rapat.",
+                            "Fluid Motion: rememberSmoothPosition() untuk transisi posisi pemutar yang halus.",
+                            "Engine Upgrade: media3 1.10.1 -> 1.11.1, Android Gradle Plugin 8.7.3 -> 9.3.0, Gradle 8.9 -> 9.6.0, Kotlin 2.0.21 -> 2.2.10, Room 2.6.1 -> 2.8.5.",
+                            "Platform Alignment: compileSdk 35 -> 37 dan targetSdk 35 -> 36, membuka API Android 17 dan mengaktifkan perilaku runtime Android 16.",
+                            "Compose Transition Fix: Shared element player kini memakai ResizeMode.scaleToBounds, menggantikan ScaleToBounds yang dihapus di Compose 1.12.1."
+                        )
+                    )
+                    Spacer(Modifier.height(16.dp))
+                }
+                item {
+                    PatchVersionSection(
                         version = "1.4.6",
                         notes = listOf(
                             "DSP Pipeline Fix: Parameter ordering corrected — preset DSP params now applied before engine enable for accurate audio processing.",

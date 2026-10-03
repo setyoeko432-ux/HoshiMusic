@@ -15,6 +15,27 @@
     <init>(...);
 }
 
+# PENTING: kelas yang punya method native yang dipanggil dari C++ lewat JNI
+# adalah DspNativeEngine, BUKAN HoshiDspProcessor. Semua simbol di
+# hoshi_dsp_core.cpp bernama:
+#   Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_native*
+# Native mencarinya berdasarkan NAMA, jadi R8 boleh me-rename atau menghapus
+# method Kotlin tanpa merusak referensi Kotlin — tapi binding JNI-nya mati.
+# Gejalanya: library tetap load (System.loadLibrary sukses) lalu setiap
+# pemanggilan melempar UnsatisfiedLinkError, dan DSP diam-diam tidak berjalan.
+# Hanya terlihat di build release/minified.
+#
+# BENTUK INI PENTING: memakai `-keep class ... { *; }`, bukan
+# `-keepclasseswithmembernames` atau `-keepclassmembers`. Yang terakhir hanya
+# mencegah NAMA kelas atau MENELEKSI member, tapi tidak selalu mencegah
+# obfuscasi nama method di R8 full mode (default AGP 8+). Terverifikasi di
+# APK release: dengan `-keepclasseswithmembernames`, method tetap ter-obfuscate
+# menjadi .e/.g/.j/.k sehingga JNI gagal bind. Kelas ini kecil, jadi
+# menjaga seluruh member tidak menambah ukuran berarti.
+-keep class com.naomi.hoshimusic.playback.dsp.DspNativeEngine {
+    *;
+}
+
 -keep class com.naomi.hoshimusic.playback.HoshiDspProcessor { *; }
 -keepclassmembers,includedescriptorclasses class com.naomi.hoshimusic.playback.HoshiDspProcessor {
     native <methods>;

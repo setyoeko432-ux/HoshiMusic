@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.naomi.hoshimusic.ui.player
 
 import androidx.compose.foundation.clickable

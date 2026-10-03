@@ -6,8 +6,16 @@ import com.naomi.hoshimusic.data.metadata.MojibakeRepairer
 import com.naomi.hoshimusic.playback.HoshiDspProcessor
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.nio.ByteBuffer
 
+// MojibakeRepairer menyimpan cache lewat android.util.LruCache. Tanpa runner
+// Robolectric, android.jar yang dipakai unit test adalah stub yang melempar
+// RuntimeException("Stub!"), sehingga repair() tidak pernah tervalidasi.
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class CleanupAuditTests {
 
     @Test

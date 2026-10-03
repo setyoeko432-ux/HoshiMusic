@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.naomi.hoshimusic.ui.player
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -40,7 +42,7 @@ internal fun SeekSection(
 ) {
     val durationFlow = remember(viewModel) { viewModel.uiState.map { it.durationMs }.distinctUntilChanged() }
     val durationMs by durationFlow.collectAsStateWithLifecycle(0L)
-    val rawPosition by viewModel.positionMsFlow.collectAsStateWithLifecycle()
+    val rawPosition = viewModel.positionMsFlow.collectAsStateWithLifecycle()
     val playbackSpeedFlow = remember(viewModel) { viewModel.uiState.map { it.playbackSpeed }.distinctUntilChanged() }
     val playbackSpeed by playbackSpeedFlow.collectAsStateWithLifecycle(1f)
     

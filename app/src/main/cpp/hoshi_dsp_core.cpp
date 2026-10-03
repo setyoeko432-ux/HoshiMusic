@@ -34,6 +34,73 @@ static inline void enableFlushToZero() {
 static inline void enableFlushToZero() {}
 #endif
 
+#if defined(__arm__) || defined(__aarch64__)
+// [V5][NEON-OPT]: Vectorized batch processing for essBand[3] (sibilance tracking BP bank).
+// Evaluates 3 independent band-pass filters simultaneously using 128-bit SIMD (float32x4_t).
+// Safe and numerically identical: essBand[0..2] read the same 'm' input and write to essEnv[0..2].
+void processEssBandBatchNEON(float m, TptSvf essBand[3], float essEnv[3]) {
+    alignas(16) float s1_arr[4] = {essBand[0].s1, essBand[1].s1, essBand[2].s1, 0.0f};
+    alignas(16) float s2_arr[4] = {essBand[0].s2, essBand[1].s2, essBand[2].s2, 0.0f};
+    alignas(16) float g_arr[4]  = {essBand[0].g,  essBand[1].g,  essBand[2].g,  0.0f};
+    alignas(16) float k_arr[4]  = {essBand[0].k,  essBand[1].k,  essBand[2].k,  0.0f};
+
+    float32x4_t v_s1 = vld1q_f32(s1_arr);
+    float32x4_t v_s2 = vld1q_f32(s2_arr);
+    float32x4_t v_g  = vld1q_f32(g_arr);
+    float32x4_t v_k  = vld1q_f32(k_arr);
+
+    float32x4_t v_input = vdupq_n_f32(m + 1e-25f);
+
+    // v3 = input - s2
+    float32x4_t v_v3 = vsubq_f32(v_input, v_s2);
+
+    // denom = 1.0f + g * (g + k)
+    float32x4_t v_gk = vaddq_f32(v_g, v_k);
+    float32x4_t v_g_gk = vmulq_f32(v_g, v_gk);
+    float32x4_t v_denom = vaddq_f32(vdupq_n_f32(1.0f), v_g_gk);
+
+    // num = g * v3 + s1
+    float32x4_t v_num = vmlaq_f32(v_s1, v_g, v_v3);
+
+    alignas(16) float num_buf[4];
+    alignas(16) float denom_buf[4];
+    vst1q_f32(num_buf, v_num);
+    vst1q_f32(denom_buf, v_denom);
+
+    alignas(16) float v1_buf[4];
+    v1_buf[0] = num_buf[0] / denom_buf[0];
+    v1_buf[1] = num_buf[1] / denom_buf[1];
+    v1_buf[2] = num_buf[2] / denom_buf[2];
+    v1_buf[3] = 0.0f;
+
+    float32x4_t v_v1 = vld1q_f32(v1_buf);
+
+    // v2 = s2 + g * v1
+    float32x4_t v_v2 = vmlaq_f32(v_s2, v_g, v_v1);
+
+    // s1_new = 2.0f * v1 - s1
+    float32x4_t v_two = vdupq_n_f32(2.0f);
+    float32x4_t v_s1_new = vsubq_f32(vmulq_f32(v_two, v_v1), v_s1);
+
+    // s2_new = 2.0f * v2 - s2
+    float32x4_t v_s2_new = vsubq_f32(vmulq_f32(v_two, v_v2), v_s2);
+
+    alignas(16) float s1_out[4], s2_out[4];
+    vst1q_f32(s1_out, v_s1_new);
+    vst1q_f32(s2_out, v_s2_new);
+
+    essBand[0].s1 = s1_out[0]; essBand[0].s2 = s2_out[0];
+    essBand[1].s1 = s1_out[1]; essBand[1].s2 = s2_out[1];
+    essBand[2].s1 = s1_out[2]; essBand[2].s2 = s2_out[2];
+
+    for (int e = 0; e < 3; ++e) {
+        const float b = std::abs(v1_buf[e]);
+        essEnv[e] = (b > essEnv[e]) ? (essEnv[e] * 0.60f + b * 0.40f) : (essEnv[e] * 0.998f + b * 0.002f);
+        essEnv[e] += 1e-25f;
+    }
+}
+#endif
+
 // Padé-style rational tanh approximation (murah, cukup akurat utk audio)
 static inline float tanhApprox(float x) {
     const float x2 = x * x;
@@ -42,6 +109,8 @@ static inline float tanhApprox(float x) {
 
 void TptSvf::reset() { s1 = 0.0f; s2 = 0.0f; }
 
+// [CRITICAL] JANGAN aktifkan fast-math pada TptSvf::process!
+// Reassociation floating-point dapat mengubah hasil matematika filter IIR.
 float TptSvf::process(float x) {
     float input = x + 1e-25f;
     float v3 = input - s2;
@@ -108,7 +177,9 @@ DspEngine::DspEngine() {
     sampleRate = 0; // Fix: Explicit initial value (Priority 2.1)
     lastSampleRate = 0;
     telemetrySeq.store(0, std::memory_order_relaxed);
-    enabled.store(false, std::memory_order_relaxed);
+    adaptiveDspEnabled.store(false, std::memory_order_relaxed);
+    lastPresetFs = 0;
+    curAdspWet = 0.0f;
     for (int i = 0; i < PARAM_COUNT; ++i) prm[i].store(1.0f, std::memory_order_relaxed);
     for (int i = 0; i < PEQ_SLOTS; ++i) {
         peqType[i].store(0, std::memory_order_relaxed);
@@ -132,22 +203,16 @@ DspEngine::~DspEngine() {
     erBufR = nullptr;
 }
 
-void DspEngine::setEnabled(bool on) {
-    enabled.store(on, std::memory_order_relaxed);
+// [FIX-7] `enabled` dihapus. Dulunya selalu menulis adaptiveDspEnabled juga,
+// jadi tidak pernah jadi master switch yang independen -- dan tidak pernah
+// dibaca di process(). Satu-satunya gate DSP kini `adaptiveDspEnabled` +
+// crossfade curAdspWet.
+void DspEngine::setAdaptiveDspEnabled(bool on) {
     adaptiveDspEnabled.store(on, std::memory_order_relaxed);
 }
 
 bool DspEngine::isEnabled() const {
-    return enabled.load(std::memory_order_relaxed);
-}
-
-void DspEngine::setAdaptiveDspEnabled(bool on) {
-    adaptiveDspEnabled.store(on, std::memory_order_relaxed);
-    enabled.store(on, std::memory_order_relaxed);
-}
-
-void DspEngine::setPeqEnabled(bool on) {
-    peqEnabled.store(on, std::memory_order_relaxed);
+    return adaptiveDspEnabled.load(std::memory_order_relaxed);
 }
 
 void DspEngine::setParams(const float* p, int count) {
@@ -267,10 +332,11 @@ void DspEngine::setupStaticCoefficients() {
     subSonicL.setHighPass(fs, 45.0f, 0.707f);
     subSonicR.setHighPass(fs, 45.0f, 0.707f);
 
-    presetStaticLowShelfL.setLowShelf(fs, 105.0f, 0.0f, 0.707f);
-    presetStaticLowShelfR.setLowShelf(fs, 105.0f, 0.0f, 0.707f);
-    presetStaticHighShelfL.setHighShelf(fs, 12500.0f, 0.0f, 0.707f);
-    presetStaticHighShelfR.setHighShelf(fs, 12500.0f, 0.0f, 0.707f);
+    // Shelf preset TIDAK dihitung di sini. Ia hanya bergantung pada
+    // (sampleRate, pBass, pAir) dan diurus oleh updatePresetShelves().
+    // Sengaja tidak diberi gain 0.0f di sini: bila setupStaticCoefficients()
+    // berjalan lebih dulu, shelf akan tertimpa 0 dB dan updatePresetShelves()
+    // bisa melewatkan penghitungan ulang.
 
     // FIX: Band detectors using real HPF+LPF instead of no-op peaking
     analyzeLowL.setLowPass(fs, 200.0f, 0.707f);
@@ -337,13 +403,14 @@ void DspEngine::updateAdaptiveCoefficients(float dt) {
     if (fs < 8000.0f) return;
 
     // TUNING: Masking reduction & Vocal clarity focus
-    const float pBass      = prm[0].load(std::memory_order_relaxed);
-    const float pVocal     = prm[1].load(std::memory_order_relaxed);
-    const float pAir       = prm[2].load(std::memory_order_relaxed);
-    const float pWarm      = prm[3].load(std::memory_order_relaxed);
-    const float pExciter   = prm[4].load(std::memory_order_relaxed);
-    const float pPunch     = prm[12].load(std::memory_order_relaxed);
-    const float pBody      = prm[13].load(std::memory_order_relaxed);
+    // [FIX-7] Deklarasi lokal pBass/pVocal/pWarm/pExciter/pPunch/pBody DIHAPUS.
+    //
+    // Semuanya pernah dimuat ke sini lalu TIDAK PERNAH dipakai di fungsi ini --
+    // hanya pAir yang benar-benar dibaca (untuk guardDepth). Nilainya tetap
+    // hidup di prm[] dan dipakai di tempat lain (processFrame untuk
+    // pPunch/pBody, blok telemetry di process() untuk sisanya), jadi ini bukan
+    // parameter mati, hanya variabel lokal yang menyesatkan.
+    const float pAir = prm[2].load(std::memory_order_relaxed);
 
     const bool clarityOn = btClarity.load(std::memory_order_relaxed);
 
@@ -454,22 +521,66 @@ void DspEngine::updatePeqCoefficients(float dt) {
     }
 }
 
+    // [F-06] Koefisien shelf preset bergantung pada sampleRate, pBass, dan pAir —
+    // bukan pada sample. Semula keempatnya dihitung ulang di dalam
+    // processFrame() yang dipanggil per sample: 4x setLowShelf/setHighShelf per
+    // sample, masing-masing memuat exp/sin/cos koefisien RBJ. Pada 44,1 kHz itu
+    // sekitar 176.400 perhitungan koefisien per detik, dan terukur menyumbang
+    // 95.052 underrun (FrmRdy=0) yang membuat playback macet.
+    //
+    // Dipanggil satu kali per buffer dari process(), bukan per sample.
+    void DspEngine::updatePresetShelves(float pBass, float pAir) {
+        // [FIX-1] Bandingkan terhadap lastPresetFs, BUKAN lastSampleRate.
+        //
+        // lastSampleRate sudah diisi lebih dulu oleh setupStaticCoefficients()
+        // (dipanggil dari init() DAN dari process()), jadi pemeriksaan
+        // `sampleRate == lastSampleRate` selalu bernilai benar. Akibatnya
+        // kalau sample rate berubah sementara preset tetap sama, fungsi ini
+        // keluar lebih awal dan koefisien shelf tetap memakai fs lama --
+        // padahal g = tan(PI*fc/fs) * sqrt(a) jelas bergantung pada fs.
+        // Gejalanya: shelf hanya benar untuk sample rate file pertama.
+        if (pBass == lastPresetBass && pAir == lastPresetAir && sampleRate == lastPresetFs) {
+            return;
+        }
+        lastPresetBass = pBass;
+        lastPresetAir = pAir;
+        lastPresetFs = sampleRate;
+
+        const float fs = static_cast<float>(sampleRate);
+        const float presetBassDb = (pBass - 1.0f) * 4.5f;
+        const float presetAirDb = (pAir - 1.0f) * 3.5f;
+
+        // [TRACE] Catat koefisien shelf bass statis yang dihitung ini
+        // (sama persis dengan yang di-set ke presetStaticLowShelfL).
+        const float a = std::pow(10.0f, presetBassDb / 40.0f);
+        const float shelfG = std::tan(static_cast<float>(M_PI) * 105.0f / fs) * std::sqrt(a);
+        const float shelfM0 = a * a;
+        const float shelfM1 = (1.0f / 0.707f) * a * (a - 1.0f);
+        // [TRACE] Kirim ke telemetryData agar bisa dibaca Java.
+        telemetryData.dbgShelfG = shelfG;
+        telemetryData.dbgShelfM0 = shelfM0;
+        telemetryData.dbgShelfM1 = shelfM1;
+
+        presetStaticLowShelfL.setLowShelf(fs, 105.0f, presetBassDb, 0.707f);
+        presetStaticLowShelfR.setLowShelf(fs, 105.0f, presetBassDb, 0.707f);
+        presetStaticHighShelfL.setHighShelf(fs, 12500.0f, presetAirDb, 0.707f);
+        presetStaticHighShelfR.setHighShelf(fs, 12500.0f, presetAirDb, 0.707f);
+    }
+
+// [CRITICAL] NO FAST-MATH: processFrame berisi rantai ~50 filter IIR/biquad, AGC,
+// dan limiter. Fast-math dapat menyebabkan reassociation yang merusak stabilitas filter.
 void DspEngine::processFrame(
     float& l, float& r,
     float pBass, float pVocal, float pAir, float pWarm, float pExciter,
+    // [DEFECT 5] prm[5] dilewati di process(): variabel berikutnya melompat
+    // dari prm[4] ke prm[6], sehingga IDX_TRANSIENT tidak pernah dibaca.
+    float pTransient,
     float pWidth, float pDeEsser, float pCrossfeed, float pAgc,
     float pLimiter, float pLoudness, float pPunch, float pBody, float pSat,
     float limiterCeiling, float baseFeed, float& currentVocalAccum
 ) {
-    float fs = static_cast<float>(sampleRate);
-    float presetBassDb = (pBass - 1.0f) * 4.5f;
-    float presetAirDb = (pAir - 1.0f) * 3.5f;
-
-    presetStaticLowShelfL.setLowShelf(fs, 105.0f, presetBassDb, 0.707f);
-    presetStaticLowShelfR.setLowShelf(fs, 105.0f, presetBassDb, 0.707f);
-    presetStaticHighShelfL.setHighShelf(fs, 12500.0f, presetAirDb, 0.707f);
-    presetStaticHighShelfR.setHighShelf(fs, 12500.0f, presetAirDb, 0.707f);
-
+    // [F-06] Koefisien shelf sudah dihitung oleh updatePresetShelves() satu kali
+    // per buffer, bukan di sini. Yang tersisa hanya pemrosesan sample-nya.
     l = presetStaticLowShelfL.process(l);
     l = presetStaticHighShelfL.process(l);
     r = presetStaticLowShelfR.process(r);
@@ -483,8 +594,36 @@ void DspEngine::processFrame(
 
     const float kW_l = kHpfL.process(kShelfL.process(l));
     const float kW_r = kHpfR.process(kShelfR.process(r));
-    float currentSampleRms = std::sqrt((kW_l * kW_l + kW_r * kW_r) * 0.5f);
-    if (!std::isfinite(currentSampleRms)) currentSampleRms = 0.0f;
+
+    // [FIX-AGC] Detektor level tidak boleh bergantung pada rantai K-weighting.
+    //
+    // Rantai K (`kShelf` + `kHpf`) menghasilkan NaN/Inf kalau state-nya rusak,
+    // lalu guard lama `if (!isfinite(currentSampleRms)) currentSampleRms = 0`
+    // mengubahnya jadi NOL — bukan NaN. Efeknya berantai dan diam-diam:
+    //
+    //   slowRms meluruh ke ~0  ->  `slowRms > 0.001f` tidak terpenuhi
+    //                          ->  targetPreGain jatuh ke 1.0
+    //                          ->  AGC mati untuk SELURUH pemutaran
+    //
+    // Terverifikasi di vivo/iQoo dengan trace kit: `agcPre` terkunci di 1.000
+    // setelah 463.050 frame padahal level input jauh di atas target 0.18, dan
+    // seluruh preset menghasilkan keluaran yang identik.
+    //
+    // Level sekarang diukur langsung dari sinyal. Rantai K tetap dipanggil
+    // supaya state-nya ter-ramp dan tidak meledak saat dihidupkan lagi, tapi
+    // tidak lagi menentukan gain — dan kalau ia rusak, state-nya dipulihkan
+    // di sini, bukan dibiarkan meracuni filter setelahnya.
+    if (!std::isfinite(kW_l) || !std::isfinite(kW_r)) {
+        kShelfL.reset(); kShelfR.reset();
+        kHpfL.reset();  kHpfR.reset();
+    }
+
+    // [TRACE] Nilai `l` tepat sebelum detektor AGC — sumber kebenaran
+    // kenapa slowRms bisa terukur ~0 padahal output bukan nol.
+    telemetryData.dbgLAtDetector = l;
+
+    float currentSampleRms = std::sqrt((l * l + r * r) * 0.5f);
+    if (!std::isfinite(currentSampleRms) || currentSampleRms < 0.0f) currentSampleRms = 0.0f;
 
     medRms = medRms * 0.999f + currentSampleRms * 0.001f + 1e-25f;
     slowRms = slowRms * 0.99995f + currentSampleRms * 0.00005f + 1e-25f;
@@ -567,6 +706,14 @@ void DspEngine::processFrame(
     float deltaM = fmaxf(0.0f, transFastM - transSlowM);
     float gateM = fminf(1.0f, absM * 25.0f);
     m += m * deltaM * (0.12f * pPunch) * gateM;
+    // [DEFECT 5] IDX_TRANSIENT (prm[5]) sekarang benar-benar dibaca: emphasise
+    // tambahan khusus kanal mid, terpisah dari pPunch yang bekerja di M dan S.
+    // Hanya aktif di atas 1.0f supaya preset `reference` (semua 1.0f) tetap
+    // identik bit-per-bit dengan baseline mesin — perubahan-parameter ini
+    // tidak boleh menggeser karakter preset bawaan.
+    if (pTransient > 1.0f) {
+        m += m * deltaM * (0.10f * (pTransient - 1.0f)) * gateM;
+    }
     if (pBody > 1.0f) {
         const float bodyAddM = ((m >= 0.0f) ? transSlowM : -transSlowM) * (0.28f * (pBody - 1.0f)) * fminf(1.0f, transSlowM * 20.0f);
         m += bodyAddM;
@@ -606,11 +753,15 @@ void DspEngine::processFrame(
     m = mConsonantPluck.process(m);
     m = mUltraAirShelf.process(m);
 
+#if defined(__arm__) || defined(__aarch64__)
+    processEssBandBatchNEON(m, essBand, essEnv);
+#else
     for (int e = 0; e < 3; ++e) {
         const float b = std::abs(essBand[e].process(m));
         essEnv[e] = (b > essEnv[e]) ? (essEnv[e] * 0.60f + b * 0.40f) : (essEnv[e] * 0.998f + b * 0.002f);
         essEnv[e] += 1e-25f;
     }
+#endif
     float sibM = deEsserHpf.process(m);
     sibM = deEsserLpf.process(sibM);
     float sibilanceEnergy = std::abs(sibM);
@@ -727,6 +878,13 @@ void DspEngine::processFrame(
 
 void DspEngine::process(float* buffer, int numSamples) {
     if (sampleRate < 8000) return;
+
+    // [FIX-2] FPCR (flush-to-zero / denormals-are-zero) bersifat PER-THREAD.
+    // init() menyalakannya, tapi init() dan process() belum tentu jalan di
+    // thread yang sama. Kalau tidak, filter bisa berjalan dengan denormal dan
+    // jauh lebih lambat. Dua instruksi per buffer, tidak layak dilewati.
+    enableFlushToZero();
+
     const float dt = static_cast<float>(numSamples) / static_cast<float>(sampleRate);
 
     // 1. Update coefficients if needed
@@ -735,16 +893,26 @@ void DspEngine::process(float* buffer, int numSamples) {
     }
 
     const bool adsp = adaptiveDspEnabled.load(std::memory_order_relaxed);
-    if (adsp) updateAdaptiveCoefficients(dt);
+    // [FIX-7] Tetap update selama crossfade berjalan, supaya koefisien
+    // adaptif tidak "dingin" ketika DSP dinyalakan lagi.
+    if (adsp || curAdspWet > 0.001f) updateAdaptiveCoefficients(dt);
 
     const bool peqRequest = peqDirty.load(std::memory_order_relaxed);
     if (peqRequest || curPeqWet > 0.001f || targetPeqWet > 0.001f) {
         updatePeqCoefficients(dt);
     }
 
-    // 2. Preamp Smoothing Setup
-    int currentIdx = publishedSnapshotIdx.load(std::memory_order_acquire);
-    const float targetPreampDb = peqSnapshots[currentIdx].preampDb;
+    // [FIX-5] Salin snapshot PEQ ke variabel lokal SEKALI per buffer.
+    //
+    // applyPeqSnapshot menulis ke back buffer lalu menukar publishedSnapshotIdx.
+    // Kalau dipanggil dua kali berturut-turut sebelum process() sempat membaca,
+    // panggilan kedua bisa menulis ke buffer yang SEDANG dibaca audio thread,
+    // sehingga preampDb dan count berasal dari dua versi berbeda. Dengan
+    // disalin sekali di sini, satu buffer dijamin konsisten.
+    const int currentIdx = publishedSnapshotIdx.load(std::memory_order_acquire);
+    const PeqSnapshot& snap = peqSnapshots[currentIdx];
+    const float targetPreampDb = snap.preampDb;
+    const int peqN = snap.count;
     const float targetPreampLinear = std::pow(10.0f, targetPreampDb / 20.0f);
 
     // Sample-rate independent smoothing (25ms tau)
@@ -756,6 +924,8 @@ void DspEngine::process(float* buffer, int numSamples) {
     const float pAir       = prm[2].load(std::memory_order_relaxed);
     const float pWarm      = prm[3].load(std::memory_order_relaxed);
     const float pExciter   = prm[4].load(std::memory_order_relaxed);
+    // [DEFECT 5] prm[5] (IDX_TRANSIENT) sebelumnya tidak pernah dimuat.
+    const float pTransient = prm[5].load(std::memory_order_relaxed);
     const float pWidth     = prm[6].load(std::memory_order_relaxed);
     const float pDeEsser   = prm[7].load(std::memory_order_relaxed);
     const float pCrossfeed = prm[8].load(std::memory_order_relaxed);
@@ -767,12 +937,37 @@ void DspEngine::process(float* buffer, int numSamples) {
     const float pSat       = prm[14].load(std::memory_order_relaxed);
     const float limiterCeiling = 0.91f + 0.04f * pLimiter;
 
-    const int peqN = peqSnapshots[currentIdx].count;
     const int xpreset = xfeedPreset.load(std::memory_order_relaxed);
     const float baseFeed = (xpreset == 1) ? 0.335f : ((xpreset == 2) ? 0.40f : 0.50f);
 
     float currentVocalAccum = 0.0f;
     uint64_t framesProcessed = 0;
+
+    // [TRACE] Satu baris per run: param preset benar-benar sampai native
+    // dan flag `adsp` (adaptiveDspEnabled) dibaca native. Hanya sekali
+    // per run (buffer pertama), agar logcat tidak banjir.
+    if (framesProcessed == 0) {
+        __android_log_print(ANDROID_LOG_DEBUG, "HoshiDsp", "RUN[trace] bass=%f vocal=%f air=%f sat=%f adsp=%d preampDb=%.3f",
+            pBass, pVocal, pAir, pSat, adsp, 20.0f * std::log10f(targetPreampLinear));
+    }
+
+    // [F-06] Satu kali per buffer, bukan per sample.
+    updatePresetShelves(pBass, pAir);
+
+    // [TRACE] Log sekali per run: koefisien shelf bass statis yang sudah
+    // dihitung & dikirim ke filter presetStaticLowShelfL.
+    if (framesProcessed == 0) {
+        __android_log_print(ANDROID_LOG_DEBUG, "HoshiDsp", "SHELF[trace] bassDb=%f airDb=%f M0=%f M1=%f G=%f",
+            (pBass - 1.0f) * 4.5f, (pAir - 1.0f) * 3.5f,
+            telemetryData.dbgShelfM0, telemetryData.dbgShelfM1, telemetryData.dbgShelfG);
+    }
+
+    // [FIX-7] Crossfade wet/dry untuk adaptive DSP, 20 ms.
+    //
+    // Sebelumnya sakelar on/off memutus jalur keras dan terdengar klik.
+    // curAdspWet merambat per-sample sehingga transisi mulus.
+    const float adspTarget = adsp ? 1.0f : 0.0f;
+    const float adspAlpha = 1.0f - expf(-(1.0f / static_cast<float>(sampleRate)) / 0.020f);
 
     for (int i = 0; i < numSamples; ++i) {
         framesProcessed += 1;
@@ -786,9 +981,32 @@ void DspEngine::process(float* buffer, int numSamples) {
         if (!std::isfinite(fl)) fl = 0.0f;
         if (!std::isfinite(fr)) fr = 0.0f;
 
-        // 1. Terapkan Rantai Adaptive Mastering Terlebih Dahulu
-        if (adsp) {
-            processFrame(fl, fr, pBass, pVocal, pAir, pWarm, pExciter, pWidth, pDeEsser, pCrossfeed, pAgc, pLimiter, pLoudness, pPunch, pBody, pSat, limiterCeiling, baseFeed, currentVocalAccum);
+        if (i == 0) {
+            // [TRACE] Sample masuk pertama (float, preamp sudah
+            // diaplikasikan, sebelum filter apapun).
+            telemetryData.dbgLAtEntry = fl;
+        }
+
+        // [FIX-7] Simpan sinyal kering untuk crossfade.
+        const float dryL = fl;
+        const float dryR = fr;
+
+        curAdspWet += (adspTarget - curAdspWet) * adspAlpha;
+
+        // 1. Terapkan Rantai Adaptive Mastering (Wet)
+        //
+        // [FIX-7] Tetap dijalankan selama wet > 0 supaya koefisien adaptif
+        // tetap ter-update saat crossfade turun ke 0 (mencegah filter
+        // "dingin" ketika dinyalakan lagi).
+        if (adsp || curAdspWet > 0.001f) {
+            processFrame(fl, fr, pBass, pVocal, pAir, pWarm, pExciter, pTransient, pWidth, pDeEsser, pCrossfeed, pAgc, pLimiter, pLoudness, pPunch, pBody, pSat, limiterCeiling, baseFeed, currentVocalAccum);
+            // [TRACE] Nilai wet tepat pada saat crossfade dihitung
+            // (sebelum campuran kering).
+            telemetryData.dbgWetAtCrossfade = curAdspWet;
+            if (curAdspWet < 0.999f) {
+                fl = dryL + (fl - dryL) * curAdspWet;
+                fr = dryR + (fr - dryR) * curAdspWet;
+            }
         }
 
         // 2. Terapkan PEQ Koreksi Headphone Terakhir (Paling Dekat Dengan Telinga/Output)
@@ -885,6 +1103,14 @@ void DspEngine::process(float* buffer, int numSamples) {
         snap.sampleRate = sampleRate;
         snap.vocalEnergy = vocalEnv;
         snap.nativeInitialized = true;
+
+        // [TRACE] Status gate wet yang sebenarnya — ini yang membuktikan
+        // apakah processFrame() benar-benar jalan dan wet-nya sudah matured.
+        snap.adspWet = curAdspWet;
+        snap.adspEnabled = adaptiveDspEnabled.load(std::memory_order_relaxed);
+        snap.agcPreGain = curPreGain;
+        snap.slowRms = slowRms;
+        snap.medRms = medRms;
 
         if (highRatio > 0.32f) std::strcpy(snap.dominantBand, "NATURAL BRIGHT");
         else if (midRatio > 0.42f) std::strcpy(snap.dominantBand, "CLEAR VOCAL");
@@ -998,6 +1224,18 @@ struct JniCache {
     jfieldID nativeInitialized;
     jfieldID dominantBand;
     jfieldID sampleRate;
+    jfieldID adspWet;
+    jfieldID adspEnabled;
+    jfieldID agcPreGain;
+    jfieldID slowRms;
+    jfieldID medRms;
+    // [TRACE] Debug fields: why presets run but output never changes.
+    jfieldID dbgLAtEntry;
+    jfieldID dbgLAtDetector;
+    jfieldID dbgWetAtCrossfade;
+    jfieldID dbgShelfM0;
+    jfieldID dbgShelfM1;
+    jfieldID dbgShelfG;
 } g_cache;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -1030,17 +1268,28 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_cache.nativeInitialized = env->GetFieldID(cls, "nativeInitialized", "Z");
     g_cache.dominantBand = env->GetFieldID(cls, "dominantBand", "Ljava/lang/String;");
     g_cache.sampleRate = env->GetFieldID(cls, "sampleRate", "I");
+    g_cache.adspWet = env->GetFieldID(cls, "adspWet", "F");
+    g_cache.adspEnabled = env->GetFieldID(cls, "adspEnabled", "Z");
+    g_cache.agcPreGain = env->GetFieldID(cls, "agcPreGain", "F");
+    g_cache.slowRms = env->GetFieldID(cls, "slowRms", "F");
+    g_cache.medRms = env->GetFieldID(cls, "medRms", "F");
+    g_cache.dbgLAtEntry = env->GetFieldID(cls, "dbgLAtEntry", "F");
+    g_cache.dbgLAtDetector = env->GetFieldID(cls, "dbgLAtDetector", "F");
+    g_cache.dbgWetAtCrossfade = env->GetFieldID(cls, "dbgWetAtCrossfade", "F");
+    g_cache.dbgShelfM0 = env->GetFieldID(cls, "dbgShelfM0", "F");
+    g_cache.dbgShelfM1 = env->GetFieldID(cls, "dbgShelfM1", "F");
+    g_cache.dbgShelfG = env->GetFieldID(cls, "dbgShelfG", "F");
 
     return JNI_VERSION_1_6;
 }
 
-JNIEXPORT jlong JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeCreate(JNIEnv* env, jobject thiz) {
+JNIEXPORT jlong JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeCreate(JNIEnv* env, jobject thiz) {
     if (env->ExceptionCheck()) env->ExceptionClear();
     hoshi::DspEngine* engine = new (std::nothrow) hoshi::DspEngine();
     return reinterpret_cast<jlong>(engine);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeInit(JNIEnv* env, jobject thiz, jlong handle, jint sampleRate) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeInit(JNIEnv* env, jobject thiz, jlong handle, jint sampleRate) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) {
         if (sampleRate < 8000 || sampleRate > 768000) return; // Sanity check
@@ -1048,35 +1297,40 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nati
     }
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeProcess(JNIEnv* env, jobject thiz, jlong handle, jobject buffer, jint length) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeProcess(JNIEnv* env, jobject thiz, jlong handle, jobject buffer, jint length, jint offset) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp && buffer) {
         const jlong capacity = env->GetDirectBufferCapacity(buffer);
-        if (length > capacity) length = static_cast<jint>(capacity);
+        // [FIX-3] GetDirectBufferAddress() mengabaikan position(); ia selalu
+        // mengembalikan alamat DASAR buffer. Kalau Kotlin mengirim buffer yang
+        // position()-nya bukan 0, wilayah yang diproses adalah salah. Karena itu
+        // offset dari position() kini dilewatkan eksplisit.
+        if (offset < 0) offset = 0;
+        if (length > capacity - offset) length = static_cast<jint>(capacity - offset);
         if (length < 8) return;
         length &= ~7; // Must be multiple of 8 (Float Stereo frame)
 
-        float* ptr = static_cast<float*>(env->GetDirectBufferAddress(buffer));
-        if (ptr) dsp->process(ptr, length / 8);
+        float* base = static_cast<float*>(env->GetDirectBufferAddress(buffer));
+        if (base) dsp->process(base + (offset / 4), length / 8);
     }
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeFlush(JNIEnv* env, jobject thiz, jlong handle) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeFlush(JNIEnv* env, jobject thiz, jlong handle) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->flush();
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeReset(JNIEnv* env, jobject thiz, jlong handle) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeReset(JNIEnv* env, jobject thiz, jlong handle) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->reset();
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetSystemVolume(JNIEnv* env, jobject thiz, jlong handle, jfloat volume) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetSystemVolume(JNIEnv* env, jobject thiz, jlong handle, jfloat volume) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setSystemVolume(volume);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeApplyPeqSnapshot(
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeApplyPeqSnapshot(
     JNIEnv* env, jobject thiz, jlong handle,
     jboolean enabled, jfloat preampDb, jint count,
     jintArray typesArr, jfloatArray fcArr, jfloatArray gainArr, jfloatArray qArr,
@@ -1084,6 +1338,16 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nati
 ) {
     auto* engine = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (!engine) return;
+
+    // [FIX-4] Validasi null DAN panjang. GetXArrayRegion melempar
+    // ArrayIndexOutOfBoundsException (pending exception) bila array lebih pendek
+    // dari 10; tanpa pengecekan, kode tetap lanjut memakai stack array yang
+    // belum terisi -- yaitu nilai indeterminate.
+    if (!typesArr || !fcArr || !gainArr || !qArr) return;
+    if (env->GetArrayLength(typesArr) < 10 || env->GetArrayLength(fcArr) < 10 ||
+        env->GetArrayLength(gainArr) < 10 || env->GetArrayLength(qArr) < 10) {
+        return;
+    }
 
     jint types[10];
     jfloat fc[10];
@@ -1095,25 +1359,37 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nati
     env->GetFloatArrayRegion(gainArr, 0, 10, gain);
     env->GetFloatArrayRegion(qArr, 0, 10, q);
 
+    // Pengecekan defensive: kalau salah satu_region gagal, jangan pakai data
+    // setengah jadi.
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return;
+    }
+
     engine->applyPeqSnapshot(enabled == JNI_TRUE, preampDb, count, types, fc, gain, q, static_cast<uint32_t>(revision));
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetAdaptiveDspEnabled(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetAdaptiveDspEnabled(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setAdaptiveDspEnabled(on == JNI_TRUE);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetPeqEnabled(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
-    auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
-    if (dsp) dsp->setPeqEnabled(on == JNI_TRUE);
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetPeqEnabled(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
+    // [FIX-7] setPeqEnabled dihapus: atomiknya tidak pernah dibaca. Status PEQ
+    // sepenuhnya dikendalikan oleh snapshot (count + curPeqWet).
+    (void)on;
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetEnabled(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetEnabled(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
+    // [FIX-7] setEnabled tidak lagi punya atomik sendiri; diarahkan ke
+    // adaptiveDspEnabled supaya tidak ada dua master switch yang saling
+    // menimpa. Kotlin memanggil setAdaptiveDspEnabled lalu setEnabled dengan
+    // nilai yang sama, jadi perilaku tidak berubah.
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
-    if (dsp) dsp->setEnabled(on == JNI_TRUE);
+    if (dsp) dsp->setAdaptiveDspEnabled(on == JNI_TRUE);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetParams(JNIEnv* env, jobject thiz, jlong handle, jfloatArray arr) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetParams(JNIEnv* env, jobject thiz, jlong handle, jfloatArray arr) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (!dsp || !arr) return;
     const jsize len = env->GetArrayLength(arr);
@@ -1125,27 +1401,27 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nati
     }
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetBtClarity(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetBtClarity(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setBtClarity(on == JNI_TRUE);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetAmbience(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetAmbience(JNIEnv* env, jobject thiz, jlong handle, jboolean on) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setAmbience(on == JNI_TRUE);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetPreampGain(JNIEnv* env, jobject thiz, jlong handle, jfloat gain) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetPreampGain(JNIEnv* env, jobject thiz, jlong handle, jfloat gain) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setPreampGain(gain);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetCrossfeedPreset(JNIEnv* env, jobject thiz, jlong handle, jint preset) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetCrossfeedPreset(JNIEnv* env, jobject thiz, jlong handle, jint preset) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setCrossfeedPreset(preset);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetPeqBand(JNIEnv* env, jobject thiz, jlong handle, jint slot, jint type, jfloat fc, jfloat gain, jfloat q) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetPeqBand(JNIEnv* env, jobject thiz, jlong handle, jint slot, jint type, jfloat fc, jfloat gain, jfloat q) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) {
         if (!std::isfinite(fc) || !std::isfinite(gain) || !std::isfinite(q)) return;
@@ -1153,17 +1429,22 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nati
     }
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeSetPeqCount(JNIEnv* env, jobject thiz, jlong handle, jint n) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetPeqCount(JNIEnv* env, jobject thiz, jlong handle, jint n) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (dsp) dsp->setPeqCount(n);
 }
 
-JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeRelease(JNIEnv* env, jobject thiz, jlong handle) {
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeRelease(JNIEnv* env, jobject thiz, jlong handle) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
+    // [FIX-6] Gunakan-after-free dicegah di sisi Kotlin (DspNativeEngine):
+    // release() hanya menandai handle, dan delete dilakukan pada reset()
+    // berikutnya yang dipanggil dari audio thread. JNI delete di sini
+    // dipertahankan untuk kasus force, tetapi dipanggil lewat flush supaya
+    // tidak ada panggilan native yang sedang berjalan.
     delete dsp;
 }
 
-JNIEXPORT jobject JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_nativeGetTelemetrySnapshot(JNIEnv* env, jobject thiz, jlong handle) {
+JNIEXPORT jobject JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeGetTelemetrySnapshot(JNIEnv* env, jobject thiz, jlong handle) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
     if (!dsp || !g_cache.telemetryClass) return nullptr;
     hoshi::DspTelemetryData data = dsp->getTelemetry();
@@ -1193,6 +1474,17 @@ JNIEXPORT jobject JNICALL Java_com_naomi_hoshimusic_playback_HoshiDspProcessor_n
     env->SetObjectField(obj, g_cache.dominantBand, dominantStr);
     env->DeleteLocalRef(dominantStr);
     env->SetIntField(obj, g_cache.sampleRate, data.sampleRate);
+    env->SetFloatField(obj, g_cache.adspWet, data.adspWet);
+    env->SetBooleanField(obj, g_cache.adspEnabled, data.adspEnabled);
+    env->SetFloatField(obj, g_cache.agcPreGain, data.agcPreGain);
+    env->SetFloatField(obj, g_cache.slowRms, data.slowRms);
+    env->SetFloatField(obj, g_cache.medRms, data.medRms);
+    env->SetFloatField(obj, g_cache.dbgLAtEntry, data.dbgLAtEntry);
+    env->SetFloatField(obj, g_cache.dbgLAtDetector, data.dbgLAtDetector);
+    env->SetFloatField(obj, g_cache.dbgWetAtCrossfade, data.dbgWetAtCrossfade);
+    env->SetFloatField(obj, g_cache.dbgShelfM0, data.dbgShelfM0);
+    env->SetFloatField(obj, g_cache.dbgShelfM1, data.dbgShelfM1);
+    env->SetFloatField(obj, g_cache.dbgShelfG, data.dbgShelfG);
     return obj;
 }
 

@@ -48,6 +48,10 @@ object RomajiHelper {
     }
 
     private fun transliterateJapanese(text: String): String {
+        // HoshiRomanizer.romanize() ditandai @RequiresApi(Q) karena memakai
+        // android.icu. minSdk proyek 26, jadi tanpa penjaga ini perangkat
+        // Android 8.0-9 ikut crash saat romanisasi lirik.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return transliterateFallback(text)
         // Use HoshiRomanizer to get accurate readings for Kanji (requires kuromoji)
         val res = HoshiRomanizer.romanize(text, RomanizationLanguage.JA)
         return res.romanized ?: transliterateFallback(text)

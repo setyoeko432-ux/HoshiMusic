@@ -10,6 +10,7 @@ internal class LibraryPreferences(private val dataStore: DataStore<Preferences>)
     val favoriteSongIds: Flow<Set<String>> = dataStore.data.map { it[PreferenceKeys.FavoriteSongIds].orEmpty() }
     val hiddenFolders: Flow<Set<String>> = dataStore.data.map { it[PreferenceKeys.HiddenFolders].orEmpty() }
     val filterShortTracks: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.FilterShortTracks] ?: true }
+    val aiTaggingEnabled: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.AiTaggingEnabled] ?: true }
     val musicFolderUri: Flow<String?> = dataStore.data.map { it[PreferenceKeys.MusicFolderUri] }
     val mediaIdMigrationDone: Flow<Boolean> = dataStore.data.map { it[PreferenceKeys.MediaIdMigrationDone] ?: false }
     val mediaIdMigrationVersion: Flow<Int> = dataStore.data.map { p ->
@@ -28,6 +29,7 @@ internal class LibraryPreferences(private val dataStore: DataStore<Preferences>)
     }
 
     suspend fun setFilterShortTracks(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.FilterShortTracks] = enabled }
+    suspend fun setAiTaggingEnabled(enabled: Boolean) = dataStore.edit { it[PreferenceKeys.AiTaggingEnabled] = enabled }
     suspend fun setMusicFolderUri(uri: String?) = dataStore.edit { if (uri == null) it.remove(PreferenceKeys.MusicFolderUri) else it[PreferenceKeys.MusicFolderUri] = uri }
     suspend fun setMediaIdMigrationDone(done: Boolean) = dataStore.edit { it[PreferenceKeys.MediaIdMigrationDone] = done }
     suspend fun setMediaIdMigrationVersion(version: Int) {

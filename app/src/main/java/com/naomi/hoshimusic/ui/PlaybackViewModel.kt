@@ -39,6 +39,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import androidx.core.content.ContextCompat
+import com.naomi.hoshimusic.util.DiagLog
 
 @androidx.media3.common.util.UnstableApi
 internal class PlaybackViewModel(application: Application) : AndroidViewModel(application), Player.Listener {
@@ -64,6 +65,21 @@ internal class PlaybackViewModel(application: Application) : AndroidViewModel(ap
     val uiState = mutableUiState.asStateFlow()
 
     private val instrumentalDetector = InstrumentalTransitionDetector()
+
+    // handleAutoSkip() jalan tiap detik, tapi baris vokal pertama/terakhir hanya
+    // berubah saat daftar lirik berganti. Tanpa cache, tiap detakan memindai
+    // seluruh baris lirik dua kali.
+    private var cachedVocalLines: List<LyricLine>? = null
+    private var firstVocalMs: Long? = null
+    private var vocalEndMs: Long? = null
+
+    private fun refreshVocalBounds(lines: List<LyricLine>) {
+        if (cachedVocalLines === lines) return
+        cachedVocalLines = lines
+        firstVocalMs = lines.firstOrNull { it.annotationType == LyricAnnotationType.VOCAL }?.timestampMs
+        vocalEndMs = lines.lastOrNull { it.annotationType == LyricAnnotationType.VOCAL }
+            ?.let { if (it.vocalEndMs > 0) it.vocalEndMs else it.timestampMs + 2000L }
+    }
     private val _presentationState = MutableStateFlow<LyricPresentationState>(LyricPresentationState.None)
     val presentationState = _presentationState.asStateFlow()
 
@@ -226,7 +242,20 @@ internal class PlaybackViewModel(application: Application) : AndroidViewModel(ap
         lastRecalledRouteKey = key
         val mapped = map[key] ?: return
         if (mapped != mutableUiState.value.dspPresetId) {
-            viewModelScope.launch { preferences.setDspPresetId(mapped) }
+            viewModelScope.launch {
+                // [DEFECT 1] Recall rute menulis `dspPresetId` langsung tanpa
+                // pernah menyentuh `DspPreviewBridge`. Dulu itu berarti bridge
+                // tetap memegang array preset sebelumnya: UI berganti ke preset
+                // hasil recall, mesin tetap memainkan preset lama.
+                //
+                // Dua lapis sekarang diamankan. (1) Jembatan sudah menyimpan
+                // `sourcePresetId`, jadi begitu `presetId` berubah, array basi
+                // otomatis diabaikan oleh `DspConfigRepository`.
+                // (2) Bridge juga dikosongkan di sini supaya recall berikutnya
+                // tidak pernah menebak apakah array lama masih relevan.
+                DspPreviewBridge.clearPreviewParams()
+                preferences.setDspPresetId(mapped)
+            }
         }
     }
 
@@ -329,6 +358,7 @@ internal class PlaybackViewModel(application: Application) : AndroidViewModel(ap
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         lastTickMs = System.currentTimeMillis()
+        DiagLog.i("PlaybackViewModel", "transisi mediaItem -> ${mediaItem?.mediaId} reason=$reason")
         mediaIdTransition(mediaItem)
         syncState(refreshQueue = true)
     }
@@ -348,6 +378,22 @@ internal class PlaybackViewModel(application: Application) : AndroidViewModel(ap
             }
             if (isActive) repository.recordPlay(mediaId)
         }
+    }
+
+    /**
+     * [Fase 3] Menangkap PlaybackException ke DiagLog.
+     *
+     * Media3 melaporkan kegagalan sebagai state ERROR, bukan crash, jadi tidak
+     * muncul di logcat crash. Dan logcat app diblokir OEM di perangkat ini.
+     * Tanpa ini, penyebab "Unexpected runtime error" tidak bisa diketahui.
+     */
+    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        DiagLog.e(
+            "PlaybackViewModel",
+            "onPlayerError code=${error.errorCodeName} msg=${error.message} " +
+                "cause=${error.cause?.javaClass?.name}: ${error.cause?.message}",
+            error
+        )
     }
 
     override fun onEvents(player: Player, events: Player.Events) { 
@@ -370,8 +416,10 @@ internal class PlaybackViewModel(application: Application) : AndroidViewModel(ap
     fun setAppTheme(t: Int) = prefCoordinator.setAppTheme(t)
     fun setRomanizationEnabled(e: Boolean) = prefCoordinator.setRomanizationEnabled(e)
     fun setTranslationMode(e: Boolean) = prefCoordinator.setTranslationMode(e)
+    fun cycleLyricDisplayMode() = prefCoordinator.cycleLyricDisplayMode()
     fun setAutoSkipIntroOutro(e: Boolean) = prefCoordinator.setAutoSkipIntroOutro(e)
     fun setBoutiqueBypassEnabled(e: Boolean) = prefCoordinator.setBoutiqueBypassEnabled(e)
+    fun setLowLatencyAudioEnabled(e: Boolean) = prefCoordinator.setLowLatencyAudioEnabled(e)
     fun setLandscapeDualPaneEnabled(e: Boolean) = prefCoordinator.setLandscapeDualPaneEnabled(e)
     fun setDspEnabled(e: Boolean) = prefCoordinator.setDspEnabled(e)
     fun setPeqEnabled(e: Boolean) = prefCoordinator.setPeqEnabled(e)
@@ -463,19 +511,19 @@ internal class PlaybackViewModel(application: Application) : AndroidViewModel(ap
         val vocalSilenceThreshold = 0.015f 
         val isVocalSilent = telemetry.vocalEnergy < vocalSilenceThreshold
 
+        refreshVocalBounds(lyrics)
+
         // 1. Intro Skip: Jump to first lyric if intro is long
         if (pos < 2000L) { // Only check in the first 2 seconds
-            val firstVocal = lyrics.firstOrNull { it.annotationType == LyricAnnotationType.VOCAL }
-            if (firstVocal != null && firstVocal.timestampMs > 3000L) {
-                active.seekTo(firstVocal.timestampMs - 200L)
+            val introTarget = firstVocalMs
+            if (introTarget != null && introTarget > 3000L) {
+                active.seekTo(introTarget - 200L)
             }
         }
 
         // 2. Outro Skip: Handle end of song
-        val lastVocal = lyrics.lastOrNull { it.annotationType == LyricAnnotationType.VOCAL }
-        if (lastVocal != null) {
-            val vocalEnd = if (lastVocal.vocalEndMs > 0) lastVocal.vocalEndMs else lastVocal.timestampMs + 2000L
-            
+        val vocalEnd = vocalEndMs
+        if (vocalEnd != null) {
             // [V22]: Refined Outro Logic
             if (pos > vocalEnd + 2500L) {
                 if (isVocalSilent) {

@@ -46,4 +46,6 @@ internal object PreferenceKeys {
     val AutoSkipIntroOutro = booleanPreferencesKey("auto_skip_intro_outro")
     val BoutiqueBypassEnabled = booleanPreferencesKey("boutique_bypass_enabled")
     val WiredBitPerfectPreferred = booleanPreferencesKey("wired_bit_perfect_preferred")
+    val LowLatencyAudio = booleanPreferencesKey("low_latency_audio")
+    val AiTaggingEnabled = booleanPreferencesKey("ai_tagging_enabled")
 }

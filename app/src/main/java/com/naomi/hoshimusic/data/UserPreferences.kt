@@ -37,6 +37,7 @@ class UserPreferences(context: Context) {
     val spatialAudioPreset: Flow<Int> = playback.spatialAudioPreset
     val boutiqueBypassEnabled: Flow<Boolean> = playback.boutiqueBypassEnabled
     val wiredBitPerfectPreferred: Flow<Boolean> = playback.wiredBitPerfectPreferred
+    val lowLatencyAudio: Flow<Boolean> = playback.lowLatencyAudio
 
     val dynamicColorEnabled: Flow<Boolean> = appearance.dynamicColorEnabled
     val appTheme: Flow<Int> = appearance.appTheme
@@ -48,6 +49,7 @@ class UserPreferences(context: Context) {
     val mediaIdMigrationDone: Flow<Boolean> = library.mediaIdMigrationDone
     val mediaIdMigrationVersion: Flow<Int> = library.mediaIdMigrationVersion
     val filterShortTracks: Flow<Boolean> = library.filterShortTracks
+    val aiTaggingEnabled: Flow<Boolean> = library.aiTaggingEnabled
     val musicFolderUri: Flow<String?> = library.musicFolderUri
     
     val totalListeningTimeMs: Flow<Long> = musicData.totalListeningTimeMs
@@ -78,6 +80,7 @@ class UserPreferences(context: Context) {
     suspend fun setSpatialAudioPreset(preset: Int) = playback.setSpatialAudioPreset(preset)
     suspend fun setBoutiqueBypassEnabled(enabled: Boolean) = playback.setBoutiqueBypassEnabled(enabled)
     suspend fun setWiredBitPerfectPreferred(enabled: Boolean) = playback.setWiredBitPerfectPreferred(enabled)
+    suspend fun setLowLatencyAudio(enabled: Boolean) = playback.setLowLatencyAudio(enabled)
     suspend fun setLyricSourcePriority(priority: LyricSourcePriority) = playback.setLyricSourcePriority(priority)
 
     suspend fun setDynamicColorEnabled(enabled: Boolean) = appearance.setDynamicColorEnabled(enabled)
@@ -88,6 +91,7 @@ class UserPreferences(context: Context) {
     suspend fun setLandscapeDualPaneEnabled(enabled: Boolean) = appearance.setLandscapeDualPaneEnabled(enabled)
 
     suspend fun setFilterShortTracks(enabled: Boolean) = library.setFilterShortTracks(enabled)
+    suspend fun setAiTaggingEnabled(enabled: Boolean) = library.setAiTaggingEnabled(enabled)
     suspend fun setMusicFolderUri(uri: String?) = library.setMusicFolderUri(uri)
     suspend fun setMediaIdMigrationDone(done: Boolean) = library.setMediaIdMigrationDone(done)
     suspend fun setMediaIdMigrationVersion(version: Int) =

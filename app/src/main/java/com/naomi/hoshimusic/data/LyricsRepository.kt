@@ -338,12 +338,15 @@ class LyricsRepository(private val context: Context) {
     private fun applySecondaryTranslation(result: LyricsResult): LyricsResult =
         result.copy(lines = applySecondaryTranslationLines(result.lines))
 
-    @android.annotation.SuppressLint("NewApi")
     private fun romanizeFragment(text: String, lang: RomanizationLanguage): String =
         when (lang) {
             RomanizationLanguage.JA -> RomajiHelper.toRomaji(text)
+            // HoshiRomanizer.romanize() butuh API 29 sementara minSdk 26.
+            // @SuppressLint hanya membungkam lint, bukan mencegah crash.
             RomanizationLanguage.KO,
-            RomanizationLanguage.ZH -> HoshiRomanizer.romanize(text, lang).romanized ?: ""
+            RomanizationLanguage.ZH -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                HoshiRomanizer.romanize(text, lang).romanized ?: ""
+            } else ""
             else -> "" // [1a] Stop paksa JA untuk Mandarin/Unknown/Mixed
         }.trim()
 

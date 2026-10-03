@@ -1,0 +1,14 @@
+buffers: { size_kb: 204800 }
+data_sources: {
+  config {
+    name: "linux.ftrace"
+    ftrace_config {
+      ftrace_events: "audio.audio_hw"
+      ftrace_events: "audio.audio_flinger"
+      ftrace_events: "binder_driver"
+      ftrace_events: "workqueue"
+    }
+  }
+}
+duration_ms: 60000
+write_into_file: true

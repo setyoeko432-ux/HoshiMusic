@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.naomi.hoshimusic.ui.player
 
 import androidx.compose.animation.*
@@ -61,7 +63,7 @@ internal fun DefaultAlbumView(
     onOpenInfo: () -> Unit,
     onEnterLyricsMode: () -> Unit,
     displayMode: LyricDisplayMode,
-    onToggleRomanization: (Boolean) -> Unit,
+    onCycleDisplayMode: () -> Unit = {},
     onSeek: (Long) -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
@@ -141,7 +143,7 @@ internal fun DefaultAlbumView(
                                 .sharedBounds(
                                     sharedContentState = rememberSharedContentState(key = "active-player-text-info"),
                                     animatedVisibilityScope = animatedVisibilityScope,
-                                    resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(ContentScale.FillWidth),
+                                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(ContentScale.FillWidth),
                                     boundsTransform = AppMotion.PlayerBoundsTransform,
                                     zIndexInOverlay = 2f
                                 )
@@ -197,7 +199,7 @@ internal fun DefaultAlbumView(
                             isPlaying = state.isPlaying,
                             playbackSpeed = state.playbackSpeed,
                             viewModel = viewModel,
-                            onToggleRomanization = onToggleRomanization,
+                            onCycleDisplayMode = onCycleDisplayMode,
                             onEnterLyricsMode = onEnterLyricsMode
                         )
                     }
@@ -267,6 +269,11 @@ internal fun ForcedLandscapeScreen(
 
             Row(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                    // Panel landscape selalu menampilkan player, bukan lirik, jadi
+                    // targetState sengaja konstan: AnimatedContent di sini hanya
+                    // menyediakan AnimatedVisibilityScope untuk shared element
+                    // di DefaultAlbumView, bukan untuk bertransisi.
+                    @Suppress("UnusedContentLambdaTargetStateParameter")
                     AnimatedContent(targetState = false, label = "forcedPlayer") { _ ->
                         DefaultAlbumView(
                             state = state,
@@ -280,7 +287,7 @@ internal fun ForcedLandscapeScreen(
                                 coroutineScope.launch { pagerState.animateScrollToPage(1) }
                             },
                             displayMode = displayMode,
-                            onToggleRomanization = { viewModel.setRomanizationEnabled(it) },
+                            onCycleDisplayMode = { viewModel.cycleLyricDisplayMode() },
                             onSeek = onSeek,
                             onToggleShuffle = onToggleShuffle,
                             onCycleRepeat = onCycleRepeat,

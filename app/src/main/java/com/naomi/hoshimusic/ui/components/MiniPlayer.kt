@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.naomi.hoshimusic.ui.components
 
 import androidx.compose.animation.*
@@ -339,7 +341,7 @@ internal fun IsolatedMiniProgress(
 ) {
     val durationFlow = remember(viewModel) { viewModel.uiState.map { it.durationMs }.distinctUntilChanged() }
     val duration by durationFlow.collectAsStateWithLifecycle(0L)
-    val rawPosition by viewModel.positionMsFlow.collectAsStateWithLifecycle()
+    val rawPosition = viewModel.positionMsFlow.collectAsStateWithLifecycle()
     val isPlayingFlow = remember(viewModel) { viewModel.uiState.map { it.isPlaying }.distinctUntilChanged() }
     val isPlaying by isPlayingFlow.collectAsStateWithLifecycle(false)
     val speedFlow = remember(viewModel) { viewModel.uiState.map { it.playbackSpeed }.distinctUntilChanged() }

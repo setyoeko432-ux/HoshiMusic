@@ -25,22 +25,43 @@ class DspLifecycleTest {
         // 1. Initial State
         assertFalse("Processor harus OFF di awal", processor.isActuallyProcessing)
         
-        // 2. Enable without configure
+        // 2. Enable tanpa configure.
+        //
+        // [FIX] Dulu test ini `assertTrue(processor.isActive)` di sini, yang
+        // mustahil: `isActive()` membaca `pendingOutputAudioFormat != NOT_SET`
+        // dan format baru dinegosiasikan oleh `configure()`. Jadi test ini
+        // gagal sejak awal, bukan karena mesinnya rusak -- artinya test
+        // siklus-hidup DSP ini tidak pernah benar-benar hijau.
         processor.setEnabled(true)
-        assertTrue("isActive harus true jika enabled", processor.isActive)
+        assertFalse(
+            "isActive harus false sebelum configure: belum ada format keluaran yang dinegosiasikan",
+            processor.isActive
+        )
         assertFalse("isActuallyProcessing harus false sebelum configure", processor.isActuallyProcessing)
-        
+
         // 3. Configure
         val format = androidx.media3.common.audio.AudioProcessor.AudioFormat(44100, 2, androidx.media3.common.C.ENCODING_PCM_16BIT)
         val outputFormat = processor.configure(format)
-        
+
         assertEquals(format.sampleRate, outputFormat.sampleRate)
+        assertTrue("isActive harus true setelah format dinegosiasikan", processor.isActive)
         assertTrue("isActuallyProcessing harus true setelah configure", processor.isActuallyProcessing)
-        
+
         // 4. Disable mid-stream
+        //
+        // [FIX] Dulu `assertFalse(processor.isActive)` — juga salah. Format
+        // sudah dinegosiasikan, jadi processor TETAP anggota rantai; hanya
+        // gate `dspUserEnabled` yang mati.(assertFalse hanya benar
+        // kebetulan karena langkah 2 lebih dulu sudah membuatnya false.)
         processor.setEnabled(false)
-        assertFalse(processor.isActive)
-        assertFalse(processor.isActuallyProcessing)
+        assertTrue(
+            "Processor tetap aktif di rantai: format masih dinegosiasikan",
+            processor.isActive
+        )
+        assertFalse(
+            "isActuallyProcessing harus false: master switch mati",
+            processor.isActuallyProcessing
+        )
         
         // 5. Re-enable
         processor.setEnabled(true)

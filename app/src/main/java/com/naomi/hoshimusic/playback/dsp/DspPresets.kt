@@ -70,9 +70,21 @@ object DspPresets {
         ),
         DspPreset(
             id = "flat", title = "Flat",
-            subtitle = "DSP Mati (passthrough murni, bukan EQ datar)",
-            // Tonal shaping & coloration OFF (0f), Width unity (1f), AGC & Limiter aktif (1f)
-            params = listOf(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f, 0f, 0f)
+            subtitle = "Nol pewarnaan tambahan di atas baseline mesin (AGC & limiter tetap aktif)",
+            // [DEFECT 6] Nilai IDX_BASS/IDX_AIR/IDX_WARMTH dinaikkan ke 1.0f.
+            //
+            // Semuanya 0f somber tidak netral, padahal tidak. Di native:
+            //   presetBassDb = (pBass - 1) * 4.5  -> 0f = -4.5 dB low shelf @105 Hz
+            //   presetAirDb  = (pAir  - 1) * 3.5  -> 0f = -3.5 dB high shelf @12.5 kHz
+            //   warmDiv      = 1 / max(pWarm, 0.25) -> 0f = 4x, jadi mud cut 280 Hz
+            //                                      jadi -4.8 s/d -8 dB
+            // Jadi "Flat" justru memotong bass dan udara — persis kebalikan dari
+            // yang biasanya diharapkan pengguna, dan terbaca sebagai "bypass".
+            //
+            // 1.0f membuat shelf 0 dB dan warmDiv 1.0 (tanpa mud cut berlebih).
+            // Sisa adaptive baseline mesin tetap berlaku, sama seperti preset
+            // `reference` — itu perilaku mesin, bukan preset ini.
+            params = listOf(1f, 0f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f, 0f, 0f)
         ),
         DspPreset(
             id = "warm", title = "Warm", subtitle = "Body 200–500 Hz naik, treble rileks — analog & nyaman",

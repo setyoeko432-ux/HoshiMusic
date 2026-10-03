@@ -4,6 +4,7 @@
 
 namespace hoshi {
 
+// SAFE: Murni aritmatika integer, tidak ada implikasi floating-point
 static inline int nextPowerOfTwo(int n) {
     if (n <= 0) return 1;
     n--;
@@ -16,12 +17,16 @@ static inline int nextPowerOfTwo(int n) {
     return n;
 }
 
+// [CRITICAL] NO FAST-MATH: Class TptSvf ini adalah filter IIR Topology-Preserving Transform.
+// JANGAN aktifkan -ffast-math di sini! Reassociation floating-point dapat merusak presisi,
+// stabilitas filter pada pole/zero, dan penanganan denormal numbers.
 class TptSvf {
 private:
     float s1 = 0.0f, s2 = 0.0f;
     float g = 0.0f, k = 0.0f;
     float m0 = 1.0f, m1 = 0.0f, m2 = 0.0f;
 public:
+    friend void processEssBandBatchNEON(float m, TptSvf essBand[3], float essEnv[3]);
     void reset();
     float process(float x);
     void setPeaking(float fs, float fc, float gainDb, float q);
@@ -38,6 +43,42 @@ struct DspTelemetryData {
     float bassRatio = 0.33f;
     float midRatio = 0.34f;
     float highRatio = 0.33f;
+
+    // [TRACE] Status gate wet yang sebenarnya.
+    //
+    // `curAirBoostDb` dan friends SELALU bergerak begitu preset berbeda,
+    // karena blok telemetry di akhir process() tidak digate apa pun. Jadi
+    // telemetry itu BUKAN bukti rantai filter berjalan — hanya bukti bahwa
+    // pAir berbeda. Dua field inilah yang membuktikan apakah processFrame()
+    // benar-benar dieksekusi dan hasilnya sampai ke output:
+    //
+    //   adspWet     : nilai crossfade wet/dry. Kalau ~0, output = dry = input.
+    //   adspEnabled : atomik adaptiveDspEnabled yang dibaca native.
+    float adspWet = 0.0f;
+    bool adspEnabled = false;
+
+    // [TRACE] Gain pre-gain AGC yang sudah merambat. Kalau ~1.0 padahal input
+    // jauh dari target 0.18 RMS, berarti `l *= curPreGain` tidak berefek.
+    float agcPreGain = 1.0f;
+
+    // [TRACE] State detektor AGC. `slowRms` yang tetap ~0 sementara output
+    // bergaik penuh berarti `currentSampleRms` dihitung dari sinyal ~0 — dan
+    // guard `if (!isfinite) currentSampleRms = 0` membuatnya diam.
+    float slowRms = 0.1f;
+    float medRms = 0.1f;
+
+    // [TRACE] Nilai wet PADA SAAT crossfade dijalankan, bukan setelah buffer
+    // selesai. `adspWet` dibaca setelah loop — kalau 1.000 padahal output
+    // tetap identik input, yang terjadi di dalam loop berbeda.
+    float dbgWetAtCrossfade = -1.0f;
+    // [TRACE] `l` saat masuk processFrame dan tepat sebelum detektor AGC.
+    float dbgLAtEntry = 0.0f;
+    float dbgLAtDetector = 0.0f;
+    // [TRACE] Koefisien shelf preset — NaN di sini berarti sampleRate native 0
+    // sehingga tan(pi*fc/0) = NaN dan seluruh filterGRP彩色失效.
+    float dbgShelfM0 = 0.0f;
+    float dbgShelfM1 = 0.0f;
+    float dbgShelfG = 0.0f;
     float curMudCutDb = -1.5f;
     float curLowMidGapCutDb = -1.2f;
     float curFormantBoostDb = 1.0f;
@@ -118,12 +159,19 @@ public:
 private:
     int sampleRate;
     void setupStaticCoefficients();
+    void updatePresetShelves(float pBass, float pAir);
     void updateAdaptiveCoefficients(float dt);
     void updatePeqCoefficients(float dt);
 
     void processFrame(
         float& l, float& r,
         float pBass, float pVocal, float pAir, float pWarm, float pExciter,
+        // [DEFECT 5] pTransient (prm[5]) dulu TIDAK ADA di daftar parameter ini,
+        // meski DspPresets.IDX_TRANSIENT mendokumentasikannya sebagai
+        // "Punch transien (M/S gate)" dan setiap preset bawaan memberi nilai
+        // berbeda padanya. Akibatnya pasangan preset yang hanya berbeda di
+        // index 5 akan menghasilkan output bit-identik.
+        float pTransient,
         float pWidth, float pDeEsser, float pCrossfeed, float pAgc,
         float pLimiter, float pLoudness, float pPunch, float pBody, float pSat,
         float limiterCeiling, float baseFeed, float& currentVocalAccum
@@ -132,9 +180,15 @@ private:
     DspTelemetryData telemetryData;
     std::atomic<uint32_t> telemetrySeq{0};
 
-    std::atomic<bool> enabled{false};
     std::atomic<bool> adaptiveDspEnabled{false};
-    std::atomic<bool> peqEnabled{false};
+
+    // [FIX-7] Atomik `enabled` dan `peqEnabled` DIHAPUS.
+    //
+    // Keduanya tidak pernah dibaca di process() (terverifikasi: 0 kemunculan).
+    // Yang menentukan hanya `adaptiveDspEnabled` dan `curPeqWet`.
+    // setEnabled()/setPeqEnabled() sebelumnya menulis kedua atomik, jadi
+    // keduanya hanya sumber kebingungan. Gate wet/dry sekarang pakai
+    // curAdspWet.
 
     // [V35]: Atomic Double-Buffering for PEQ
     PeqSnapshot peqSnapshots[2];
@@ -145,6 +199,14 @@ private:
     float curPreampLinear = 1.0f;
     float curPeqWet = 0.0f; // 0.0 = Dry/Bypass, 1.0 = Wet/Active
     float targetPeqWet = 0.0f;
+
+    // [FIX-7] Crossfade untuk sakelar adaptive DSP.
+    //
+    // Sebelumnya `if (adsp) processFrame(...)` memutus jalur secara keras:
+    // filter IIR yang tiba-tiba dilewati menghasilkan klik yang terdengar
+    // jelas. Nilai ini merambat menuju 1.0 saat aktif dan 0.0 saat mati,
+    // sehingga transisi mulus seperti curPeqWet.
+    float curAdspWet = 0.0f;
 
     std::atomic<bool> btClarity{false};
     std::atomic<bool> ambience{false};
@@ -235,5 +297,20 @@ private:
     std::atomic<bool> ambienceDirty{true};
     std::atomic<bool> preampDirty{true};
     int lastSampleRate = 0;
+
+    // [F-06] Nilai preset terakhir yang dipakai menghitung koefisien shelf.
+    // -1.0f adalah sentinel karena nilai preset selalu >= 0, jadi pemanggilan
+    // pertama pasti menghitung ulang.
+    float lastPresetBass = -1.0f;
+    float lastPresetAir = -1.0f;
+
+    // [FIX-1] Sample rate terakhir yang dipakai untuk koefisien shelf preset.
+    //
+    // WAJIB terpisah dari lastSampleRate. setupStaticCoefficients() mengisi
+    // lastSampleRate lebih dulu di dalam init()/process(), sehingga pemeriksaan
+    // `sampleRate == lastSampleRate` di updatePresetShelves() selalu bernilai
+    // benar dan shelf tidak pernah dihitung ulang saat sample rate berubah --
+    // padahal g = tan(PI*fc/fs) * sqrt(a) bergantung pada fs.
+    float lastPresetFs = 0;
 };
 }

@@ -63,5 +63,6 @@ internal data class PlaybackUiState(
     val signalPath: AudioSignalPathState = AudioSignalPathState(),
     val audioPathStatus: AudioPathStatus = AudioPathStatus.UNKNOWN_FORMAT,
     val autoSkipIntroOutro: Boolean = false,
-    val boutiqueBypassEnabled: Boolean = false
+    val boutiqueBypassEnabled: Boolean = false,
+    val lowLatencyAudioEnabled: Boolean = false
 )

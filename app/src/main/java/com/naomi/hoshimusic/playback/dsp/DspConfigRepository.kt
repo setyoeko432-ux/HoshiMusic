@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.naomi.hoshimusic.playback.dsp
 
 import com.naomi.hoshimusic.data.PeqProfile
@@ -52,16 +54,18 @@ class DspConfigRepository(
         @Suppress("UNCHECKED_CAST")
         val peqProfiles = values[12] as List<PeqProfile>
         val preview = values[13] as PeqProfile?
-        val previewParams = values[14] as FloatArray?
+        val previewParams = values[14] as DspPreviewBridge.PreviewParams?
 
-        val params = previewParams ?: DspPresets.resolveParams(presetId, customs).toFloatArray()
-        
-        // [Issue 8]: Ambience Mode (room-reflection modifier)
-        if (ambience) {
-            params[DspPresets.IDX_WIDTH] = (params[DspPresets.IDX_WIDTH] * 1.25f).coerceAtMost(2.0f)
-            params[DspPresets.IDX_SATURATE] = (params[DspPresets.IDX_SATURATE] * 1.15f).coerceAtMost(2.0f)
-            params[DspPresets.IDX_DEESSER] = (params[DspPresets.IDX_DEESSER] * 0.85f).coerceAtLeast(0f)
-        }
+        // [DEFECT 1] Aturan "jembatan hanya dipercaya kalau masih milik preset
+        // yang aktif" sekarang hidup di fungsi murni `DspParamResolver`, yang
+        // bisa diuji tanpa DataStore. Ini regresi yang lolos ke rilis karena
+        // logikanya tadinya tersembunyi di dalam lambda `combine`.
+        val params = DspParamResolver.resolve(
+            presetId = presetId,
+            customs = customs,
+            previewParams = previewParams,
+            ambienceEnabled = ambience
+        )
 
         val effectiveBtClarity = when (guardMode) {
             1 -> a2dpPresent
@@ -82,11 +86,18 @@ class DspConfigRepository(
             params = params,
             btClarityEnabled = effectiveBtClarity,
             ambienceEnabled = ambience,
+            // [DEFECT 2] Preamp harus dibawa ke coordinator dalam satuan dB.
+            // Nilai dB inilah yang benar-benar diterapkan di native
+            // (`targetPreampLinear` di DspEngine::process()); atomik
+            // `preampGain` di C++ disimpan tapi TIDAK PERNAH dibaca, jadi
+            // `setPreampGain()` ke native adalah jalan kosong.
+            preampDb = totalPreampDb,
             preampLinear = linearPreamp,
             spatialAudioEnabled = spatialEnabled,
             spatialAudioPreset = spatialPreset,
             peqBands = bands.take(HoshiDspProcessor.DSP_PEQ_MAX),
-            peqCount = bands.size.coerceAtMost(HoshiDspProcessor.DSP_PEQ_MAX)
+            peqCount = bands.size.coerceAtMost(HoshiDspProcessor.DSP_PEQ_MAX),
+            presetId = presetId
         )
     }.distinctUntilChanged()
 }

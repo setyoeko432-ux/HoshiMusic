@@ -72,6 +72,10 @@ internal fun SettingsContent(
     onToggleAutoSkip: (Boolean) -> Unit,
     boutiqueBypassEnabled: Boolean,
     onToggleBoutiqueBypass: (Boolean) -> Unit,
+    lowLatencyAudioEnabled: Boolean = false,
+    onToggleLowLatencyAudio: (Boolean) -> Unit = {},
+    aiTaggingEnabled: Boolean = true,
+    onToggleAiTagging: (Boolean) -> Unit = {},
     routeProfiles: Map<String, String>,
     onClearRouteProfiles: () -> Unit,
     onActiveMainScreenChange: (MainScreen) -> Unit,
@@ -118,10 +122,24 @@ internal fun SettingsContent(
                 SettingsToggle(icon = Icons.Rounded.Tune, title = "Normalisasi Volume", subtitle = "Seimbangkan volume secara otomatis (ReplayGain)", checked = normalizationEnabled, onCheckedChange = onToggleNormalization)
                 SettingsToggle(
                     icon = Icons.Rounded.Bolt,
-                    title = "Boutique Bypass (Exclusive)",
-                    subtitle = "Bypass paksa efek OEM (SKTune/Dolby). Matikan jika lagu non-FLAC tidak berbunyi.",
+                    title = "Boutique Bypass (Eksperimental)",
+                    subtitle = "Meminta routing USAGE_GAME agar beberapa OEM melewati prosesnya. Tidak menjamin efek vendor (SKTune/Dolby) ikut terlewat, dan belum terverifikasi pada semua perangkat. Matikan jika lagu non-FLAC tidak berbunyi.",
                     checked = boutiqueBypassEnabled,
                     onCheckedChange = onToggleBoutiqueBypass
+                )
+                SettingsToggle(
+                    icon = Icons.Rounded.Speed,
+                    title = "Low Latency Mode (AAudio)",
+                    subtitle = "Meminta PERFORMANCE_MODE_LOW_LATENCY agar buffer audio lebih kecil. Tidak dijamin didukung perangkat.",
+                    checked = lowLatencyAudioEnabled,
+                    onCheckedChange = onToggleLowLatencyAudio
+                )
+                SettingsToggle(
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = "AI Auto-Tagging (Beta)",
+                    subtitle = "Deteksi genre & BPM otomatis saat scan library (100% offline & di dalam perangkat)",
+                    checked = aiTaggingEnabled,
+                    onCheckedChange = onToggleAiTagging
                 )
                 SettingsDivider()
                 SettingsToggle(icon = Icons.Rounded.GraphicEq, title = "DSP Engine", subtitle = "Mastering adaptif: EQ, bass, stage & loudness", checked = dspEnabled, onCheckedChange = onSetDspEnabled)

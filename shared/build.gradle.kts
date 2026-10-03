@@ -1,16 +1,18 @@
 plugins {
-    alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeMultiplatform)
 }
 
 kotlin {
-    androidTarget {
-        compilations.all {
-            compilerOptions.configure {
-                jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-            }
+    android {
+        namespace = "com.naomi.hoshimusic.shared"
+        compileSdk = 37
+        minSdk = 26
+
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
 
@@ -27,23 +29,9 @@ kotlin {
         }
 
         androidMain.dependencies {
-            implementation("androidx.core:core-ktx:1.15.0")
+            implementation("androidx.core:core-ktx:1.18.0")
             implementation("io.coil-kt:coil-compose:2.7.0")
             implementation("androidx.palette:palette-ktx:1.0.0")
         }
-    }
-}
-
-android {
-    namespace = "com.naomi.hoshimusic.shared"
-    compileSdk = 35
-
-    defaultConfig {
-        minSdk = 26
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
     }
 }

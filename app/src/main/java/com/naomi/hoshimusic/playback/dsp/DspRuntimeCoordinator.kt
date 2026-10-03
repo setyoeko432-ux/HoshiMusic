@@ -2,6 +2,8 @@ package com.naomi.hoshimusic.playback.dsp
 
 import androidx.media3.common.util.UnstableApi
 import com.naomi.hoshimusic.playback.HoshiDspProcessor
+import com.naomi.hoshimusic.util.DiagLog
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -80,12 +82,36 @@ class DspRuntimeCoordinator(
         dsp.setBtClarity(config.btClarityEnabled)
         dsp.setAmbience(config.ambienceEnabled)
         dsp.setPreampGain(config.preampLinear)
-        
+
         // 3. Parametric EQ (Connected)
-        dsp.applyPeqSnapshot(config.peqEnabled, 0f, config.peqBands)
+        //
+        // [DEFECT 2] Nilai kedua dulu di-hardcode `0f`. `applyPeqSnapshot()`
+        // meneruskan preampDb ke native sebagai `targetPreampLinear`, jadi
+        // slider preamp di UI praktis tidak pernah mengubah apa pun.
+        // Sekarang preamp asli diteruskan.
+        dsp.applyPeqSnapshot(config.peqEnabled, config.preampDb, config.peqBands)
         
         // 4. Master Enable
         dsp.setAdaptiveDspEnabled(config.adaptiveDspEnabled)
         dsp.setEnabled(config.enabled)
+
+        // [DIAG] Catat preset yang benar-benar aktif beserta parameternya.
+        //
+        // Tanpa baris ini, gejala "semua preset terdengar sama" tidak bisa
+        // dibedakan dari "mesin mati" hanya dari log perangkat. Sekarang
+        // jelas terbaca: preset mana, dan angka apa yang benar-benar dikirim.
+        //
+        // `p0`/INDEX_TRANSIENT dicetak eksplisit karena keduanya tidak pernah
+        // bergerak di output yang membuat bug ini sulit dilacak.
+        DiagLog.i(
+            "HoshiDsp",
+            "applyConfig preset=${config.presetId} " +
+                "enabled=${config.enabled} adsp=${config.adaptiveDspEnabled} " +
+                "peq=${config.peqCount} preamp=${config.preampDb}dB " +
+                "p0/bass=${config.params.getOrElse(0) { 1f }} " +
+                "p2/air=${config.params.getOrElse(2) { 1f }} " +
+                "p5/transient=${config.params.getOrElse(5) { 1f }} " +
+                "all=${config.params.joinToString(",") { String.format(Locale.US, "%.2f", it) }}"
+        )
     }
 }
