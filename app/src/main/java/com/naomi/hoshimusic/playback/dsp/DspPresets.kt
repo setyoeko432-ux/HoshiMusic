@@ -33,7 +33,7 @@ object DspPresets {
     // Index parameter (harus sinkron dengan hoshi_dsp_core.cpp)
     const val IDX_BASS = 0       // Virtual bass + low body
     const val IDX_VOCAL = 1      // Vocal presence 2-4kHz & consonant pluck
-    const val IDX_AIR = 2        // Ultra air shelf 14kHz+
+    const val IDX_AIR = 2        // High shelf "air" preset (center ~7 kHz di native)
     const val IDX_WARMTH = 3     // Kedalaman potongan mud/low-mid (200-500Hz)
     const val IDX_EXCITER = 4    // Harmonic exciter >6kHz
     const val IDX_TRANSIENT = 5  // Punch transien (M/S gate)
@@ -75,7 +75,7 @@ object DspPresets {
             //
             // Semuanya 0f somber tidak netral, padahal tidak. Di native:
             //   presetBassDb = (pBass - 1) * 4.5  -> 0f = -4.5 dB low shelf @105 Hz
-            //   presetAirDb  = (pAir  - 1) * 3.5  -> 0f = -3.5 dB high shelf @12.5 kHz
+            //   presetAirDb  = (pAir  - 1) * 3.5  -> 0f = -3.5 dB high shelf @7 kHz
             //   warmDiv      = 1 / max(pWarm, 0.25) -> 0f = 4x, jadi mud cut 280 Hz
             //                                      jadi -4.8 s/d -8 dB
             // Jadi "Flat" justru memotong bass dan udara — persis kebalikan dari

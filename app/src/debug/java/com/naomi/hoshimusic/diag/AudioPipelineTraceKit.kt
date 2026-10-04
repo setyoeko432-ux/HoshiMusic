@@ -64,6 +64,26 @@ import kotlin.math.sin
  *      chunk   : frame per buffer (default 2048).
  *      report  : nama file laporan (default audio_trace_report.txt).
  *
+ *  MODE TONE — respons tiap preset pada nada murni, kondisi terkendali:
+ *
+ *      adb shell am broadcast -a com.naomi.hoshimusic.PROBE \
+ *          -n com.naomi.hoshimusic/.diag.ProbeReceiver --es tone 1
+ *
+ *      Terbatas ke sebagian level, frekuensi, dan preset:
+ *
+ *      adb shell am broadcast -a com.naomi.hoshimusic.PROBE \
+ *          -n com.naomi.hoshimusic/.diag.ProbeReceiver --es tone 1 \
+ *          --es levels -30,-12,-6 --es freqs 60,10000 \
+ *          --es presets bass_boost,bright
+ *
+ *  Extra yang dikenali mode tone:
+ *      tone    : "1" menyalakan mode ini. Selain itu, mode trace biasa dipakai.
+ *      levels  : peak dBFS dipisah koma. Default "-20,-6".
+ *      freqs   : Hz dipisah koma. Default "60,300,3000,10000".
+ *      report  : nama file laporan (default audio_trace_tone_report.txt).
+ *
+ *  Mode tone TIDAK memakai extra "file": sumbernya selalu nada sintetis.
+ *
  *  ----------------------------------------------------------------------------
  *  KENAPA TESTKIT INI ADA
  *  ----------------------------------------------------------------------------
@@ -711,7 +731,12 @@ class AudioPipelineTraceKit(
                     } else {
                         l
                     }
-                    if (l != inS || r != inS) differing++
+                    // Toleransi 2 LSB: jalur DSP melewati int16 -> float -> int16
+                    // (x/32768 lalu x32767), yang menggeser ~1 LSB pada hampir
+                    // semua sample BAHKAN kalau mesin native tidak mengubah apa
+                    // pun. Tanpa toleransi, kolom ini tampak "hidup" padahal
+                    // DSP-nya tidak berefek.
+                    if (kotlin.math.abs(l - inS) > 2 || kotlin.math.abs(r - inS) > 2) differing++
                     if (pairs.size < 12) pairs.add(inS to l)
 
                     val mono = (l + r) / 2.0 / 32768.0
@@ -815,13 +840,21 @@ class AudioPipelineTraceKit(
         sb.appendLine("[2] GERBANG onConfigure  — satu gagal = NOT_SET = DSP mati senyap")
         sb.appendLine()
         val ref = runs.first()
-        sb.appendLine("    " + pad("run", 18) + pad("g1 16bit", 12) + pad("g2 lib", 12) + pad("g3/4 init", 14) + "g5 negotiated")
-        sb.appendLine("    " + "-".repeat(72))
+        // [FIX-GATES] Header lama punya 4 kolom gerbang, tapi tiap baris
+        // mencetak 5 sel (4 gerbang + negotiated) -- kolom terakhir tidak ada
+        // judulnya, dan lebar kolom g3/4 di header (14) berbeda dari baris
+        // (12) sehingga kolomnya tidak lurus. Sekarang satu daftar lebar
+        // dipakai bersama oleh header dan isi.
+        val gateW = listOf(12, 12, 14, 12)
+        sb.appendLine(
+            "    " + pad("run", 18) + pad("g1 16bit", 12) + pad("g2 lib", 12) +
+                pad("g3+g4 init", 14) + pad("g5 fmt", 12) + "negotiated"
+        )
+        sb.appendLine("    " + "-".repeat(18 + gateW.sum() + 14))
         runs.forEach { r ->
             sb.append("    " + pad(r.label, 18))
-            r.gates.forEach { g ->
-                val cell = if (g.passed) "PASS" else "GAGAL"
-                sb.append(pad(cell, if (g.detail.length > 4) 12 else 12))
+            r.gates.forEachIndexed { i, g ->
+                sb.append(pad(if (g.passed) "PASS" else "GAGAL", gateW.getOrElse(i) { 12 }))
             }
             sb.appendLine(if (r.negotiated) "PASS" else "GAGAL (NOT_SET)")
         }
@@ -829,6 +862,8 @@ class AudioPipelineTraceKit(
         sb.appendLine("    g1 = encoding PCM_16BIT, g2 = libhoshi_dsp.so termuat,")
         sb.appendLine("    g3+g4 = native handle dibuat & nativeInit(sr) sukses,")
         sb.appendLine("    g5 = format keluar = format masuk (kontrak media3).")
+        sb.appendLine("    Kolom negotiated mengulang nilai yang sama dengan g5; keptahankan")
+        sb.appendLine("    supaya ketidaksesuaian keduanya terlihat kalau pernah terjadi.")
         sb.appendLine("    Detail g2: ${ref.gates.getOrNull(1)?.detail ?: "-"}")
         return sb.toString()
     }
@@ -987,10 +1022,904 @@ class AudioPipelineTraceKit(
     private fun pad(s: String, width: Int): String =
         if (s.length >= width) s + "  " else s + " ".repeat(width - s.length)
 
+    // ==========================================================================
+    //  MODE "tone" — respons preset pada nada murni, kondisi terkendali
+    // ==========================================================================
+    //
+    //  Trace biasa memakai satu sumber multi-band lalu mengukur ENERGI per pita.
+    //  Itu tidak bisa menjawab pertanyaan yang lebih tajam: apakah boost 60 Hz
+    //  benar-benar sebesar yang dirancang, dan apakah ia hilang karena shelf-nya
+    //  sendiri atau karena parameter lain di dalam preset yang sama.
+    //
+    //  Mode ini menjawabnya dengan kondisi terkendali: satu sinus, satu
+    //  frekuensi, satu level. Karena input hanya punya energi di satu frekuensi,
+    //  selisih rms keluar/masuk ADALAH gain pada frekuensi itu sendiri.
+    //
+    //  Pengukuran hanya diambil di detik terakhir supaya AGC pre-gain dan semua
+    //  filter sudah mencapai keadaan stabil. Rantai latency-neutral, jadi indeks
+    //  frame masuk dan keluar pada jendela itu boleh sama.
+    //
+    //  Setiap (preset, level, frekuensi) memakai `HoshiDspProcessor` BARU, jadi
+    //  tidak ada sisa AGC atau state filter dari run sebelumnya.
+    //
+    //  Semua kode di bawah ini BARU. Jalur trace()/execute() yang lama tidak
+    //  disentuh sama sekali.
+
+    /** Panjang tiap nada. */
+    private val toneSeconds = 3.0
+
+    /** Hanya detik terakhir yang diukur; sisanya untuk memanaskan AGC/filter. */
+    private val toneMeasureSeconds = 1.0
+
+    /** Fade di kedua ujung supaya tidak ada klik transien. */
+    private val toneFadeSeconds = 0.025
+
+    private val toneSampleRate = SyntheticWav.DEFAULT_SAMPLE_RATE
+
+    /** Batas |delta| di bawah ini dianggap "tidak bergerak sama sekali". */
+    private val toneDeadDb = 0.15
+
+    /** Pita hanya dinilai kalau nilai harapan-nya di atas ambang ini. */
+    private val toneExpectedMinDb = 0.5
+
+    /** Toleransi sel kontrol bypass. */
+    private val toneControlTolDb = 0.1
+
+    /** Selisih antar level yang masih dianggap tidak bergantung level. */
+    private val toneLevelFlatDb = 1.0
+
+    /** Lebar kolom label preset dan kolom pita. */
+    private val toneLabelW = 18
+    private val toneColW = 9
+
+    /**
+     * Preset isolasi sintetis: HANYA alat uji ini, bukan bagian DspPresets.
+     * Basis semua 1.0, lalu tepat satu parameter yang diubah.
+     */
+    private val toneIsoPresets = listOf(
+        Triple("iso_bass", DspPresets.IDX_BASS, 1.80f),
+        Triple("iso_air", DspPresets.IDX_AIR, 1.80f),
+        Triple("iso_vocal", DspPresets.IDX_VOCAL, 1.45f)
+    )
+
+    /**
+     * Kontrol kedua: preset `reference` dengan crossfeed dimatikan.
+     *
+     * Sinyal uji dibuat stereo identik (L = R), sedangkan crossfeed earphone
+     * justru mencampur silang kedua kanal. Untuk L = R, crossfeed berubah jadi
+     * low-pass — jadi crossfeed sendiri sudah menggeser respons di 3 kHz dan
+     * 10 kHz. Tanpa run ini, delta preset yang berbeda crossfeed/body-nya
+     * terlihat seperti "shelf-nya rusak", padahal shelf-nya baik-baik saja.
+     */
+    private val TONE_REF_NO_CF = "ref_nocf"
+
+    private val TONE_MIN_RATIO_60HZ = 0.50
+
+    /**
+     * [FIX-THRESH] 10 kHz: 0,25 -> 0,50.
+     *
+     * Angka 0,25 berasal dari shelf udara yang tadinya di 12,5 kHz, sehingga
+     * 10 kHz hanya kena ujung kurva. Setelah center shelf dipindah ke 7 kHz
+     * (lihat kPresetAirShelfHz di hoshi_dsp_core.cpp), boost di 10 kHz
+     * mendekati penuh, jadi ambang 0,25 hanya akan menganggap respons yang
+     * sudah benar sebagai "LEMAH".
+     */
+    private val TONE_MIN_RATIO_10KHZ = 0.50
+
+    /**
+     * Ambang paling kecil untuk pita 3 kHz.
+     *
+     * Berbeda dari 60 Hz/10 kHz, pita ini dinilai ARAH saja; yang dipakai
+     * hanyalah tanda perubahan parameter vokal. Ambang umum (0,5 dB) terlalu
+     * besar: preset `vocal` hanya menaikkan prm[1] sebesar 0,45 sehingga
+     * selalu menjadi "n/a" walau efeknya jelas +0,95 dB di 3 kHz.
+     */
+    private val toneVocalMinParamDelta = 0.05
+
+    /**
+     * Satu pasangan pembanding untuk Bagian E: preset isolasi versus preset
+     * penuh, pada pita yang sama.
+     */
+    private data class ToneComparison(
+        val isoLabel: String,
+        val freqHz: Double,
+        val fullLabels: List<String>,
+        /** Rasio minimum agar preset isolasi dianggap "boost-nya hidup". */
+        val isoMinRatio: Double,
+        /** Rasio minimum agar preset penuh dianggap "boost-nya hidup". */
+        val fullMinRatio: Double
+    )
+
+    private val toneComparisons = listOf(
+        // [FIX-THRESH] Ambang 10 kHz dinaikkan 0,25 -> 0,50 karena center shelf
+        // udara sudah pindah ke 7 kHz (kPresetAirShelfHz). Tidak ada lagi alasan
+        // untuk mengizinkan boost udara hanya diterapkan seperempat.
+        ToneComparison("iso_bass", 60.0, listOf("bass_boost"), TONE_MIN_RATIO_60HZ, TONE_MIN_RATIO_60HZ),
+        ToneComparison(
+            "iso_air", 10000.0, listOf("bright", "air_shimmer"),
+            TONE_MIN_RATIO_10KHZ, TONE_MIN_RATIO_10KHZ
+        )
+    )
+
+    /**
+     * True kalau preset punya crossfeed atau body yang berbeda dari `reference`.
+     *
+     * Keduanya bekerja di luar jalur shelf dan langsung menggeser gain di SEMUA
+     * pita pada nada murni L = R, sehingga delta-nya tidak boleh dibaca sebagai
+     // karakteristik shelf preset. Nilai yang dipakai di sini: prm[8]
+     * (crossfeed) dan prm[13] (body).
+     */
+    private fun toneHasCrossfeedOrBodyDiff(params: FloatArray): Boolean {
+        fun at(i: Int): Float = params.getOrElse(i) { 1f }
+        return at(DspPresets.IDX_CROSSFEED) != 1f || at(DspPresets.IDX_BODY) != 1f
+    }
+
+    /** Hasil satu nada. */
+    private data class ToneRun(
+        val label: String,
+        val levelDb: Double,
+        val freqHz: Double,
+        /** `configure()` mengembalikan NOT_SET. */
+        val configured: Boolean,
+        val gainDb: Double,
+        val agcPre: Double,
+        val rmsIn: Double,
+        val rmsOut: Double
+    )
+
+    /** Satu vonis pita untuk satu preset pada satu level. */
+    private data class ToneVerdict(
+        val label: String,
+        val levelDb: Double,
+        val freqHz: Double,
+        val expected: Double,
+        val measured: Double,
+        val ratio: Double?,
+        val verdict: String
+    )
+
+    /**
+     * Jalankan mode tone dan kembalikan laporannya sebagai teks.
+     *
+     * [levelsDb] adalah peak dBFS tiap nada, [freqs] frekuensi dalam Hz.
+     * [presetIds] kosong memakai semua preset bawaan.
+     */
+    fun traceTone(
+        presetIds: List<String>?,
+        levelsDb: List<Double>,
+        freqs: List<Double>
+    ): String {
+        val isoLabels = toneIsoPresets.map { it.first }
+        val builtinIds = (presetIds ?: DspPresets.BUILTINS.map { it.id })
+            .filter { it != TONE_BYPASS && it !in isoLabels }
+
+        // `reference` selalu ikut: dia baseline delta di Bagian C.
+        // `ref_nocf` ikut juga: kontrol crossfeed (lihat TONE_REF_NO_CF).
+        val labels = (builtinIds + DspPresets.REFERENCE_ID + TONE_REF_NO_CF).distinct() + isoLabels
+
+        val runs = ArrayList<ToneRun>()
+
+        // Kontrol bypass lebih dulu, di setiap level x frekuensi. Kalau angka di
+        // sini tidak 0,00 dB, gain preset di bawahnya tidak bisa dipercaya.
+        DiagLog.i(
+            TAG,
+            "tone: kontrol bypass ${levelsDb.size} level x ${freqs.size} frekuensi"
+        )
+        val neutral = FloatArray(DspPresets.PARAM_COUNT) { 1f }
+        levelsDb.forEach { level ->
+            freqs.forEach { hz ->
+                runs += executeTone(TONE_BYPASS, neutral, dspEnabled = false, levelDb = level, freqHz = hz)
+            }
+        }
+
+        val totalRuns = labels.size * levelsDb.size * freqs.size
+        DiagLog.i(TAG, "tone: ${totalRuns} nada untuk ${labels.size} preset")
+        labels.forEach { label ->
+            DiagLog.i(TAG, "tone: mengukur preset '$label' ...")
+            val params = toneParamsFor(label)
+            val dspOn = label != TONE_BYPASS
+            levelsDb.forEach { level ->
+                freqs.forEach { hz ->
+                    runs += executeTone(label, params, dspOn, level, hz)
+                }
+            }
+        }
+
+        val verdicts = toneVerdicts(runs, levelsDb, builtinIds, freqs)
+
+        val report = StringBuilder()
+        report.append(renderToneHeader(levelsDb, freqs, labels))
+        report.append(renderToneControl(runs, levelsDb, freqs))
+        report.append(renderToneAbsolute(runs, levelsDb, labels, freqs))
+        report.append(renderToneDelta(runs, levelsDb, labels, freqs))
+        report.append(renderToneVerdicts(verdicts))
+        report.append(renderToneDiagnosis(runs, verdicts, levelsDb, freqs, labels))
+
+        val text = report.toString()
+        DiagLog.i(TAG, "trace selesai: mode tone, ${runs.size} nada atas ${labels.size} preset")
+        text.lineSequence().forEach { DiagLog.i(TAG, it) }
+        return text
+    }
+
+    /** Jalankan mode tone dan tulis laporan ke [output] supaya mudah di-pull. */
+    fun traceToneToFile(
+        presetIds: List<String>?,
+        levelsDb: List<Double>,
+        freqs: List<Double>,
+        output: File
+    ): String {
+        val text = traceTone(presetIds, levelsDb, freqs)
+        output.writeText(text)
+        DiagLog.i(TAG, "laporan ditulis: ${output.absolutePath} (${output.length()} bytes)")
+        return text
+    }
+
+    // ------------------------------------------------------- eksekusi tone
+
+    /** Parameter untuk [label]; preset isolasi disintesis di sini. */
+    private fun toneParamsFor(label: String): FloatArray {
+        toneIsoPresets.firstOrNull { it.first == label }?.let { return toneIsoParams(it.second, it.third) }
+        // Kontrol crossfeed: `reference` persis, tapi prm[8] dimatikan.
+        if (label == TONE_REF_NO_CF) {
+            val base = DspParamResolver.resolve(DspPresets.REFERENCE_ID, emptyList(), null).copyOf()
+            base[DspPresets.IDX_CROSSFEED] = 0f
+            return base
+        }
+        return DspParamResolver.resolve(label, emptyList(), null)
+    }
+
+    private fun toneIsoParams(index: Int, value: Float): FloatArray =
+        FloatArray(DspPresets.PARAM_COUNT) { i -> if (i == index) value else 1f }
+
+    /**
+     * Amplop fade; menyalin pola `SyntheticWav.envelope()` persis.
+     *
+     * Dipakai ulang (bukan dipanggil) karena fungsi itu private di objeknya.
+     */
+    private fun toneEnvelope(i: Int, n: Int, fade: Int): Double {
+        if (i < fade) return i.toDouble() / fade
+        val tail = n - 1 - i
+        if (tail < fade) return tail.coerceAtLeast(0).toDouble() / fade
+        return 1.0
+    }
+
+    /**
+     * Jalankan satu nada dan ukur gainnya di detik terakhir.
+     *
+     * Konfigurasi dibuat dari nol supaya tidak ada sisa state dari run lain.
+     */
+    private fun executeTone(
+        label: String,
+        params: FloatArray,
+        dspEnabled: Boolean,
+        levelDb: Double,
+        freqHz: Double
+    ): ToneRun {
+        val processor = HoshiDspProcessor()
+        val format = AudioFormat(toneSampleRate, 2, C.ENCODING_PCM_16BIT)
+
+        if (processor.configure(format) == AudioFormat.NOT_SET) {
+            processor.release()
+            return ToneRun(label, levelDb, freqHz, false, 0.0, 1.0, 0.0, 0.0)
+        }
+
+        processor.setParams(params)
+        processor.setAdaptiveDspEnabled(dspEnabled)
+
+        val totalFrames = (toneSeconds * toneSampleRate).toInt()
+        val measureFrom = totalFrames - (toneMeasureSeconds * toneSampleRate).toInt()
+        val fade = (toneFadeSeconds * toneSampleRate).toInt()
+        val amp = Math.pow(10.0, levelDb / 20.0)
+        val w = 2.0 * Math.PI * freqHz / toneSampleRate
+
+        var sumIn = 0.0
+        var sumOut = 0.0
+        var counted = 0L
+
+        var offset = 0
+        while (offset < totalFrames) {
+            val n = minOf(chunkFrames, totalFrames - offset)
+
+            val inputBuf = ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder())
+            for (i in 0 until n) {
+                val idx = offset + i
+                val s = (Math.sin(w * idx) * amp * toneEnvelope(idx, totalFrames, fade) * 32767.0)
+                    .toInt().coerceIn(-32768, 32767).toShort()
+                // Stereo identik: L = R, jadi satu kanal cukup untuk mengukur.
+                inputBuf.putShort(s)
+                inputBuf.putShort(s)
+            }
+            inputBuf.flip()
+
+            processor.queueInput(inputBuf)
+
+            val out = processor.getOutput()
+            if (out.hasRemaining()) {
+                val shorts = ShortArray(out.remaining() / 2)
+                out.asShortBuffer().get(shorts)
+                val produced = shorts.size / 2
+
+                for (i in 0 until produced) {
+                    val frameIdx = offset + i
+                    if (frameIdx < measureFrom) continue
+                    // Kanal kiri saja, sesuai spesifikasi mode ini.
+                    val l = shorts[i * 2].toInt() / 32768.0
+                    sumOut += l * l
+                    counted++
+                }
+            }
+
+            // Masukan diukur PER FRAME pada jendela yang sama dengan `sumOut`.
+            //
+            // Guard lama `if (offset >= measureFrom)` menghitung seluruh
+            // input sebuah chunk begitu offset-nya lewat ambang, sedangkan
+            // output dijumlahkan per frame dari measureFrom. measureFrom
+            // (88200) bukan kelipatan chunk (2048), jadi kedua penjumlah
+            // menghitung sample yang BERBEDA — lalu keduanya dibagi `counted`
+            // yang sama. Selisihnya konstan, bukan acak: kontrol bypass pun
+            // terbaca +0,19 dB dan meter ditandai RUSAK.
+            for (i in 0 until n) {
+                val idx = offset + i
+                if (idx < measureFrom) continue
+                val s = (Math.sin(w * idx) * amp * toneEnvelope(idx, totalFrames, fade) * 32767.0)
+                    .toInt().coerceIn(-32768, 32767) / 32768.0
+                sumIn += s * s
+            }
+
+            offset += n
+        }
+
+        val tel = processor.updateTelemetry()
+        val agcPre = tel?.agcPreGain?.toDouble() ?: 1.0
+        processor.release()
+
+        val denom = if (counted > 0L) counted.toDouble() else 1.0
+        val rmsIn = Math.sqrt(sumIn / denom)
+        val rmsOut = Math.sqrt(sumOut / denom)
+        val gainDb = if (rmsIn > 1e-9 && rmsOut > 1e-9) {
+            20.0 * Math.log10(rmsOut / rmsIn)
+        } else {
+            // Floor agar tabel tidak berisi NaN/Inf yang-ruup semua sel.
+            -120.0
+        }
+
+        return ToneRun(label, levelDb, freqHz, true, gainDb, agcPre, rmsIn, rmsOut)
+    }
+
+    // ---------------------------------------------------------- pembacaan
+
+    private fun List<ToneRun>.toneFind(label: String, levelDb: Double, freqHz: Double): ToneRun? =
+        firstOrNull { it.label == label && it.levelDb == levelDb && it.freqHz == freqHz }
+
+    /**
+     * Gain [label] dikurangi gain preset `reference` pada level dan frekuensi
+     * yang sama. Offset bersama ikut terhapus, jadi yang tersisa adalah efek
+     * khusus preset tersebut.
+     */
+    private fun List<ToneRun>.toneDelta(label: String, levelDb: Double, freqHz: Double): Double? {
+        val own = toneFind(label, levelDb, freqHz) ?: return null
+        val ref = toneFind(DspPresets.REFERENCE_ID, levelDb, freqHz) ?: return null
+        if (!own.configured || !ref.configured) return null
+        return own.gainDb - ref.gainDb
+    }
+
+    /**
+     * Harapan shelf dari parameter preset: 60 Hz dapat bass, 10 kHz dapat air.
+     * Null kalau pita itu tidak punya shelf yang relevan.
+     */
+    private fun toneShelfExpectation(label: String, freqHz: Double): Double? {
+        val params = toneParamsFor(label)
+        val gains = DspParamResolver.presetShelfGainsDb(params)
+        return when (freqHz) {
+            60.0 -> gains.first.toDouble()
+            10000.0 -> gains.second.toDouble()
+            else -> null
+        }
+    }
+
+    // ---------------------------------------------------------- vonis pita
+
+    private fun toneVerdictFor(measured: Double, expected: Double, minRatio: Double): Pair<Double?, String> {
+        if (kotlin.math.abs(measured) < toneDeadDb) return null to "TIDAK ADA EFEK"
+        val ratio = measured / expected
+        if (ratio < 0) return ratio to "BERLAWANAN"
+        if (ratio >= minRatio) return ratio to "SESUAI"
+        return ratio to ("LEMAH (rasio %d%%)".format(Locale.US, Math.round(ratio * 100.0)))
+    }
+
+    /** Pita 3 kHz dinilai ARAH saja; besarnya tidak dinilai. */
+    private fun toneVocalVerdictFor(measured: Double, expected: Double): Pair<Double?, String> {
+        if (kotlin.math.abs(measured) < toneDeadDb) return null to "TIDAK ADA EFEK"
+        val sameSide = (measured > 0.0) == (expected > 0.0)
+        return null to if (sameSide) "SESUAI ARAH" else "BERLAWANAN"
+    }
+
+    private fun toneVerdicts(
+        runs: List<ToneRun>,
+        levelsDb: List<Double>,
+        builtinIds: List<String>,
+        freqs: List<Double>
+    ): List<ToneVerdict> {
+        val out = ArrayList<ToneVerdict>()
+        builtinIds.forEach { label ->
+            val params = toneParamsFor(label)
+            val vocalDelta = params.getOrElse(DspPresets.IDX_VOCAL) { 1f } - 1f
+            levelsDb.forEach { level ->
+                freqs.forEach { hz ->
+                    val measured = runs.toneDelta(label, level, hz) ?: return@forEach
+                    val rawLine = when (hz) {
+                        60.0 -> {
+                            val expected = DspParamResolver.presetShelfGainsDb(params).first.toDouble()
+                            if (kotlin.math.abs(expected) < toneExpectedMinDb) {
+                                null to "n/a (harapan < 0,5 dB)"
+                            } else {
+                                toneVerdictFor(measured, expected, TONE_MIN_RATIO_60HZ)
+                            }
+                        }
+                        10000.0 -> {
+                            val expected = DspParamResolver.presetShelfGainsDb(params).second.toDouble()
+                            if (kotlin.math.abs(expected) < toneExpectedMinDb) {
+                                null to "n/a (harapan < 0,5 dB)"
+                            } else {
+                                // [FIX-THRESH] Center shelf udara kini 7 kHz
+                                // (kPresetAirShelfHz), jadi 10 kHz tidak lagi
+                                // hanya kena ujung kurva -> ambang 0,50.
+                                toneVerdictFor(measured, expected, TONE_MIN_RATIO_10KHZ)
+                            }
+                        }
+                        3000.0 -> {
+                            // [FIX-VOCAL] Pita ini dinilai ARAH. Delta parameter
+                            // yang NOL (prm[1] = 1,0) berarti preset tidak
+                            // menyentuh vokal sama sekali -- bukan "arah turun".
+                            // Ambangnya diturunkan ke [toneVocalMinParamDelta]
+                            // supaya `vocal` (prm[1] = 1,45) ikut dinilai.
+                            if (kotlin.math.abs(vocalDelta) < toneVocalMinParamDelta) {
+                                null to "netral (prm[vokal] tidak diubah)"
+                            } else {
+                                toneVocalVerdictFor(measured, kotlin.math.sign(vocalDelta).toDouble())
+                            }
+                        }
+                        else -> null to "tidak dinilai (pita tanpa penilaian)"
+                    }
+                    // [FIX-XFEED] "BERLAWANAN" pada preset yang crossfeed atau
+                    // body-nya berbeda dari reference bukan bukti shelf rusak:
+                    // dua parameter itu menggeser gain di semua pita pada nada
+                    // L = R. Tetapkan sebagai keterangan, bukan bug shelf.
+                    val line = if (rawLine.second.startsWith("BERLAWANAN") &&
+                        toneHasCrossfeedOrBodyDiff(params)
+                    ) {
+                        rawLine.first to "BERLAWANAN (dipengaruhi crossfeed/body)"
+                    } else {
+                        rawLine
+                    }
+                    out += ToneVerdict(
+                        label = label,
+                        levelDb = level,
+                        freqHz = hz,
+                        expected = when (hz) {
+                            60.0 -> DspParamResolver.presetShelfGainsDb(params).first.toDouble()
+                            10000.0 -> DspParamResolver.presetShelfGainsDb(params).second.toDouble()
+                            3000.0 -> kotlin.math.sign(vocalDelta).toDouble()
+                            else -> 0.0
+                        },
+                        measured = measured,
+                        ratio = line.first,
+                        verdict = line.second
+                    )
+                }
+            }
+        }
+        return out
+    }
+
+    // ------------------------------------------------------------ laporan
+
+    private fun toneHzLabel(hz: Double): String =
+        if (hz >= 1000.0) "%.1fkHz".format(Locale.US, hz / 1000.0) else "${hz.toInt()}Hz"
+
+    private fun toneLevelLabel(levelDb: Double): String =
+        ("%+.0fdBFS".format(Locale.US, levelDb))
+
+    private fun toneSigned(db: Double): String = "%+.2f".format(Locale.US, db)
+
+    private fun toneRatio(ratio: Double): String = "%+.0f%%".format(Locale.US, ratio * 100.0)
+
+    private fun renderToneHeader(
+        levelsDb: List<Double>,
+        freqs: List<Double>,
+        labels: List<String>
+    ): String {
+        val sb = StringBuilder()
+        sb.appendLine("=".repeat(74))
+        sb.appendLine("HOSHI AUDIO PIPELINE TRACE — MODE TONE")
+        sb.appendLine("=".repeat(74))
+        sb.appendLine("[1] KONFIGURASI")
+        sb.appendLine("    sampleRate   : ${toneSampleRate} Hz")
+        sb.appendLine("    kanal        : 2 -> stereo identik (L = R); diukur kanal kiri")
+        sb.appendLine("    nada         : %.1f s sinus, fade %.0f ms di kedua ujung"
+            .format(Locale.US, toneSeconds, toneFadeSeconds * 1000.0))
+        sb.appendLine("    diukur       : %.1f detik terakhir saja (sisa %.1f s untuk"
+            .format(Locale.US, toneMeasureSeconds, toneSeconds - toneMeasureSeconds))
+        sb.appendLine("                   memanaskan AGC pre-gain dan filter)")
+        sb.appendLine("    processor    : instance BARU tiap nada (tidak ada sisa AGC/filter)")
+        sb.appendLine("    chunk        : ${chunkFrames} frame")
+        sb.appendLine("    level diuji  : " + levelsDb.joinToString(", ") { toneLevelLabel(it) })
+        sb.appendLine("    frekuensi    : " + freqs.joinToString(", ") { toneHzLabel(it) })
+        sb.appendLine("    preset       : ${labels.size} total (${labels.count { it.startsWith("iso_") }} isolasi sintetis)")
+        sb.appendLine()
+        sb.appendLine("    ganhoDb = 20*log10(rmsOut/rmsIn) pada jendela ukur yang sama.")
+        sb.appendLine("    Karena input hanya berisi satu frekuensi, angka ini adalah gain")
+        sb.appendLine("    pada frekuensi itu sendiri.")
+        return sb.toString()
+    }
+
+    private fun renderToneControl(
+        runs: List<ToneRun>,
+        levelsDb: List<Double>,
+        freqs: List<Double>
+    ): String {
+        val sb = StringBuilder()
+        sb.appendLine("[A] KONTROL BYPASS  — gerbang kepercayaan seluruh tabel")
+        sb.appendLine("    bypass: setAdaptiveDspEnabled(false) dan semua parameter 1.0.")
+        sb.appendLine("    Karena input nada murni, gain di sini HARUS 0,00 dB. Menyimpang")
+        sb.appendLine("    berarti meter atau jalurnya yang bermasalah, bukan presetnya.")
+        sb.appendLine()
+        sb.append("    " + pad("level", toneLabelW))
+        freqs.forEach { sb.append(pad(toneHzLabel(it), toneColW)) }
+        sb.appendLine("status")
+        sb.appendLine("    " + "-".repeat(toneLabelW + toneColW * freqs.size + 8))
+
+        var anyBroken = false
+        levelsDb.forEach { level ->
+            sb.append("    " + pad(toneLevelLabel(level), toneLabelW))
+            var rowOk = true
+            freqs.forEach { hz ->
+                val run = runs.toneFind(TONE_BYPASS, level, hz)
+                when {
+                    run == null -> {
+                        rowOk = false
+                        sb.append(pad("n/a", toneColW))
+                    }
+                    !run.configured -> {
+                        rowOk = false
+                        sb.append(pad("GAGAL", toneColW))
+                    }
+                    else -> {
+                        if (kotlin.math.abs(run.gainDb) > toneControlTolDb) rowOk = false
+                        sb.append(pad(toneSigned(run.gainDb), toneColW))
+                    }
+                }
+            }
+            if (!rowOk) anyBroken = true
+            sb.appendLine(if (rowOk) "OK" else "RUSAK")
+        }
+        sb.appendLine()
+
+        if (anyBroken) {
+            sb.appendLine("    METER/ALUR RUSAK — tabel tidak bisa dipercaya.")
+            sb.appendLine("    Gotanya: pada bypass, gain paling banter hanya pembulatan,")
+            sb.appendLine("    jadi seharusnya sekitar 0,00 dB. Tabel di bawah tetap")
+            sb.appendLine("    dicetak, tapi jangan dibaca sebagai karakteristik preset.")
+        } else {
+            sb.appendLine("    Semua sel dalam toleransi ±%.1f dB -> meter SAH."
+                .format(Locale.US, toneControlTolDb))
+            sb.appendLine("    Angka 0,00 dB di tabel di bawah berarti memang tidak ada efek.")
+        }
+        return sb.toString()
+    }
+
+    private fun renderToneAbsolute(
+        runs: List<ToneRun>,
+        levelsDb: List<Double>,
+        labels: List<String>,
+        freqs: List<Double>
+    ): String {
+        val sb = StringBuilder()
+        sb.appendLine("[B] GAIN ABSOLUT  — gain dB yang benar-benar keluar, per level")
+        sb.appendLine("    Mengandung SEMUA yang aktif: AGC, limiter, loudness, dan efek preset.")
+        sb.appendLine("    Kolom agcPre = gain pre-gain AGC saat pengukuran (1.000 = AGC diam).")
+        sb.appendLine()
+        levelsDb.forEach { level ->
+            sb.appendLine("    level " + toneLevelLabel(level))
+            sb.append("    " + pad("preset", toneLabelW))
+            freqs.forEach { sb.append(pad(toneHzLabel(it), toneColW)) }
+            sb.appendLine(pad("agcPre", 8))
+            sb.appendLine("    " + "-".repeat(toneLabelW + toneColW * freqs.size + 8))
+            labels.forEach { label ->
+                sb.append("    " + pad(label, toneLabelW))
+                var lastAgc = Double.NaN
+                freqs.forEach { hz ->
+                    val run = runs.toneFind(label, level, hz)
+                    when {
+                        run == null -> sb.append(pad("n/a", toneColW))
+                        !run.configured -> sb.append(pad("GAGAL", toneColW))
+                        else -> {
+                            lastAgc = run.agcPre
+                            sb.append(pad(toneSigned(run.gainDb), toneColW))
+                        }
+                    }
+                }
+                sb.appendLine(
+                    if (lastAgc.isNaN()) pad("n/a", 8)
+                    else pad("%.3f".format(Locale.US, lastAgc), 8)
+                )
+            }
+            sb.appendLine()
+        }
+        return sb.toString()
+    }
+
+    private fun renderToneDelta(
+        runs: List<ToneRun>,
+        levelsDb: List<Double>,
+        labels: List<String>,
+        freqs: List<Double>
+    ): String {
+        val sb = StringBuilder()
+        sb.appendLine("[C] DELTA TERHADAP REFERENCE  — tabel terpenting")
+        sb.appendLine("    gainDb dikurangi gainDb preset '${DspPresets.REFERENCE_ID}' pada level")
+        sb.appendLine("    dan frekuensi yang sama. Offset bersama (AGC, limiter, loudness,")
+        sb.appendLine("    dan apa pun yang selalu aktif) ikut terhapus, jadi yang tersisa")
+        sb.appendLine("    adalah efek KHUSUS preset tersebut.")
+        sb.appendLine()
+        levelsDb.forEach { level ->
+            sb.appendLine("    level " + toneLevelLabel(level))
+            sb.append("    " + pad("preset", toneLabelW))
+            freqs.forEach { sb.append(pad(toneHzLabel(it), toneColW)) }
+            sb.appendLine()
+            // [FIX-DELTA] Kolom "vonis" dihapus: headed-nya ada tapi tidak
+            // pernah diisi, sehingga selalu kosong dan menyesatkan. Vonis
+            // lengkap (dengan alasan "dipengaruhi crossfeed/body") ada di [D].
+            sb.appendLine("    " + "-".repeat(toneLabelW + toneColW * freqs.size))
+            labels.forEach { label ->
+                sb.append("    " + pad(label, toneLabelW))
+                freqs.forEach { hz ->
+                    val delta = runs.toneDelta(label, level, hz)
+                    sb.append(if (delta == null) pad("n/a", toneColW) else pad(toneSigned(delta), toneColW))
+                }
+                sb.appendLine()
+            }
+            sb.appendLine()
+        }
+        return sb.toString()
+    }
+
+    private fun renderToneVerdicts(verdicts: List<ToneVerdict>): String {
+        val sb = StringBuilder()
+        sb.appendLine("[D] VONIS PER PRESET BAWAAN, PER LEVEL")
+        sb.appendLine("    Harapan 60 Hz dan 10 kHz diambil dari")
+        sb.appendLine("    DspParamResolver.presetShelfGainsDb(params); 3 kHz dinilai ARAH saja")
+        sb.appendLine("    (prm[vokal] tidak diubah -> 'netral'); 300 Hz tidak dinilai karena")
+        sb.appendLine("    tidak ada parameter yang memetakannya.")
+        sb.appendLine("    Ambang: |deltaTerukur| < %.2f dB -> TIDAK ADA EFEK; rasio < 0 ->"
+            .format(Locale.US, toneDeadDb))
+        sb.appendLine("    BERLAWANAN; rasio >= %.2f (60 Hz & 10 kHz) -> SESUAI."
+            .format(Locale.US, TONE_MIN_RATIO_60HZ))
+        sb.appendLine("    BERLAWANAN pada preset yang crossfeed/body-nya berbeda dari")
+        sb.appendLine("    reference diberi keterangan: dua parameter itu menggeser gain di")
+        sb.appendLine("    semua pita pada nada L = R, jadi bukan bukti shelf rusak.")
+        sb.appendLine()
+
+        if (verdicts.isEmpty()) {
+            sb.appendLine("    (tidak ada preset bawaan yang dinilai)")
+            return sb.toString()
+        }
+
+        verdicts.groupBy { it.levelDb }.forEach { (level, rows) ->
+            sb.appendLine("    level " + toneLevelLabel(level))
+            rows.forEach { v ->
+                // [FIX-VOCAL] expected == 0 berarti TANPA ARAH: preset
+                // reference punya prm[vokal] = 1,0 sehingga sign(delta) = 0.
+                // Sempler dicetak "arah turun" padahal tidak ada yang dituju.
+                val exp = when {
+                    v.freqHz != 3000.0 -> "${toneSigned(v.expected)} dB"
+                    v.expected > 0.0 -> "arah naik"
+                    v.expected < 0.0 -> "arah turun"
+                    else -> "netral"
+                }
+                val ratioTxt = v.ratio?.let { "rasio ${toneRatio(it)}" } ?: "rasio  n/a"
+                sb.appendLine(
+                    "      " + pad(v.label, toneLabelW) + pad(toneHzLabel(v.freqHz), toneColW) +
+                        pad("harapan $exp", 20) + pad("terukur ${toneSigned(v.measured)}", 18) +
+                        pad(ratioTxt, 14) + v.verdict
+                )
+            }
+            sb.appendLine()
+        }
+        return sb.toString()
+    }
+
+    private fun renderToneDiagnosis(
+        runs: List<ToneRun>,
+        verdicts: List<ToneVerdict>,
+        levelsDb: List<Double>,
+        freqs: List<Double>,
+        labels: List<String>
+    ): String {
+        val sb = StringBuilder()
+        sb.appendLine("[E] DIAGNOSIS OTOMATIS")
+        sb.appendLine("    Bahasa di bawah sengaja hati-hati: 'indikasi', bukan penyebab")
+        sb.appendLine("    pasti. Satu preset bisa gagal karena beberapa alasan sekaligus,")
+        sb.appendLine("    dan alat uji ini tidak bisa memisahkan semuanya.")
+        sb.appendLine()
+
+        val problematic = verdicts.filter {
+            it.verdict == "TIDAK ADA EFEK" || it.verdict.startsWith("BERLAWANAN")
+        }
+
+        sb.appendLine("    CATATAN KONTROL: CROSSFEED & BODY")
+        sb.appendLine("      Sinyal uji dibuat stereo identik (L = R). Crossfeed earphone")
+        sb.appendLine("      justru mencampur silang kedua kanal, jadi untuk L = R ia")
+        sb.appendLine("      berubah menjadi low-pass dan MENGURANGI gain di 3 kHz serta")
+        sb.appendLine("      10 kHz, berapa pun nilai crossfeed preset. Run '${TONE_REF_NO_CF}'")
+        sb.appendLine("      (reference dengan prm[8]=0) mengukur pengaruh itu langsung:")
+        levelsDb.forEach { level ->
+            val parts = freqs.mapNotNull { hz ->
+                val d = runs.toneDelta(TONE_REF_NO_CF, level, hz) ?: return@mapNotNull null
+                "${toneHzLabel(hz)} ${toneSigned(d)} dB"
+            }
+            if (parts.isNotEmpty()) {
+                sb.appendLine("        " + pad(toneLevelLabel(level), 12) + parts.joinToString(", "))
+            }
+        }
+        sb.appendLine("      Angka positif = crossfeed reference justru MEREDUKSI band.")
+        sb.appendLine("      Karena itu delta di 3 kHz/10 kHz pada preset dengan crossfeed")
+        sb.appendLine("      berbeda dari reference bukan bukti shelf-nya rusak.")
+
+        val bodyRef = labels
+            .map { it to (toneParamsFor(it).getOrElse(DspPresets.IDX_BODY) { 1f } - 1f) }
+            .filter { kotlin.math.abs(it.second) > 0.0f }
+            .maxByOrNull { kotlin.math.abs(it.second) }
+        if (bodyRef != null) {
+            sb.appendLine("      Parameter body (prm[13]) juga menambah/mengurangi gain rata")
+            sb.appendLine("      di SEMUA frekuensi pada nada murni. Contoh terbesarnya")
+            sb.appendLine("      '${bodyRef.first}' (prm[13] = %.2f):"
+                .format(Locale.US, bodyRef.second + 1f))
+            levelsDb.forEach { level ->
+                val parts = freqs.mapNotNull { hz ->
+                    val d = runs.toneDelta(bodyRef.first, level, hz) ?: return@mapNotNull null
+                    "${toneHzLabel(hz)} ${toneSigned(d)} dB"
+                }
+                if (parts.isNotEmpty()) {
+                    sb.appendLine("        " + pad(toneLevelLabel(level), 12) + parts.joinToString(", "))
+                }
+            }
+            sb.appendLine("      Vonis BERLAWANAN untuk preset seperti ini diberi keterangan")
+            sb.appendLine("      '(dipengaruhi crossfeed/body)' di bagian [D].")
+        }
+        sb.appendLine()
+
+        levelsDb.forEach { level ->
+            sb.appendLine("    level " + toneLevelLabel(level))
+            sb.appendLine()
+            toneComparisons.forEach { cmp ->
+                val isoDelta = runs.toneDelta(cmp.isoLabel, level, cmp.freqHz)
+                val isoExp = toneShelfExpectation(cmp.isoLabel, cmp.freqHz)
+                if (isoDelta == null || isoExp == null || kotlin.math.abs(isoExp) < toneExpectedMinDb) {
+                    return@forEach
+                }
+                val isoRatio = isoDelta / isoExp
+
+                sb.appendLine(
+                    "      " + cmp.isoLabel + " vs " + cmp.fullLabels.joinToString("/") +
+                        " @ " + toneHzLabel(cmp.freqHz)
+                )
+                sb.appendLine(
+                    "        isolasi : terukur ${toneSigned(isoDelta)} dB, " +
+                        "harapan ${toneSigned(isoExp)} dB, rasio ${toneRatio(isoRatio)} " +
+                        "(ambang ${toneRatio(cmp.isoMinRatio)})"
+                )
+
+                cmp.fullLabels.forEach { full ->
+                    val fullDelta = runs.toneDelta(full, level, cmp.freqHz)
+                    val fullExp = toneShelfExpectation(full, cmp.freqHz)
+                    if (fullDelta == null || fullExp == null || kotlin.math.abs(fullExp) < toneExpectedMinDb) {
+                        return@forEach
+                    }
+                    val fullRatio = fullDelta / fullExp
+                    sb.appendLine(
+                        "        " + pad(full, toneLabelW) +
+                            "terukur ${toneSigned(fullDelta)} dB, " +
+                            "harapan ${toneSigned(fullExp)} dB, rasio ${toneRatio(fullRatio)} " +
+                            "(ambang ${toneRatio(cmp.fullMinRatio)})"
+                    )
+                    when {
+                        isoRatio >= cmp.isoMinRatio && fullRatio < cmp.fullMinRatio ->
+                            sb.appendLine(
+                                "          Indikasi: boost hilang karena parameter LAIN di dalam" +
+                                    " preset (mis. saturasi/punch/body), bukan karena shelf."
+                            )
+                        isoRatio < cmp.isoMinRatio ->
+                            sb.appendLine(
+                                "          Indikasi: shelf dinetralkan di dalam mesin (mis. AGC" +
+                                    " yang mengukur level setelah shelf, atau saturasi)," +
+                                    " bukan karena kombinasi parameter preset."
+                            )
+                        fullRatio >= cmp.fullMinRatio ->
+                            sb.appendLine("          Efek preset sesuai rancangan pada level ini.")
+                        else ->
+                            sb.appendLine(
+                                "          Di luar tiga pola di atas; rasio preset di antara" +
+                                    " ambang iso dan ambang preset."
+                            )
+                    }
+                }
+                sb.appendLine()
+            }
+        }
+
+        // Ketergantungan level: delta level terendah vs tertinggi, preset sama.
+        if (levelsDb.size >= 2) {
+            val lo = levelsDb.first()
+            val hi = levelsDb.last()
+            sb.appendLine("    KETERGANTUNGAN LEVEL (delta ${toneLevelLabel(lo)} vs ${toneLevelLabel(hi)},")
+            sb.appendLine("    ambang ${"%.1f".format(Locale.US, toneLevelFlatDb)} dB):")
+            var any = false
+            labels.forEach { label ->
+                freqs.forEach { hz ->
+                    val a = runs.toneDelta(label, lo, hz)
+                    val b = runs.toneDelta(label, hi, hz)
+                    if (a == null || b == null) return@forEach
+                    val diff = a - b
+                    if (kotlin.math.abs(diff) > toneLevelFlatDb) {
+                        any = true
+                        sb.appendLine(
+                            "      " + pad(label, toneLabelW) + pad(toneHzLabel(hz), toneColW) +
+                                pad("${toneSigned(a)} -> ${toneSigned(b)}", 22) +
+                                "selisih ${toneSigned(diff)}"
+                        )
+                    }
+                }
+            }
+            if (any) {
+                sb.appendLine("      Indikasi: efek bergantung level (AGC/saturasi/limiter terlibat).")
+            } else {
+                sb.appendLine("      (tidak ada preset yang bergeser lebih dari ambang)")
+            }
+            sb.appendLine()
+        }
+
+        sb.appendLine("    AGC (agcPre per level):")
+        levelsDb.forEach { level ->
+            val agcs = runs
+                .filter { it.levelDb == level && it.label != TONE_BYPASS && it.configured }
+                .map { it.agcPre }
+                .filter { it > 0.0 }
+            val lo = agcs.minOrNull()
+            val hi = agcs.maxOrNull()
+            if (lo == null || hi == null) {
+                sb.appendLine("      ${pad(toneLevelLabel(level), 12)} n/a")
+            } else {
+                val engaged = lo < 0.8 || hi > 1.2
+                sb.appendLine(
+                    "      " + pad(toneLevelLabel(level), 12) +
+                        "%.3f .. %.3f".format(Locale.US, lo, hi) +
+                        if (engaged) "  AGC aktif memengaruhi pengukuran pada level ini" else ""
+                )
+            }
+        }
+        sb.appendLine()
+
+        sb.appendLine("    PRESET BERSTATUS TIDAK ADA EFEK / BERLAWANAN:")
+        val bad = problematic.map { "${it.label} @ ${toneLevelLabel(it.levelDb)} ${toneHzLabel(it.freqHz)}: ${it.verdict}" }
+        if (bad.isEmpty()) {
+            sb.appendLine("      (tidak ada)")
+        } else {
+            bad.distinct().forEach { sb.appendLine("      $it") }
+        }
+        return sb.toString()
+    }
+
     companion object {
         const val TAG = "AudioPipe"
         const val REPORT_FILE = "audio_trace_report.txt"
         const val SYNTHETIC_FILE = "audio_trace_source.wav"
+
+        /** Nama laporan mode tone; dipakai ProbeReceiver sebagai default. */
+        const val TONE_REPORT_FILE = "audio_trace_tone_report.txt"
+
+        /** Label kontrol bypass pada mode tone. */
+        const val TONE_BYPASS = "__bypass__"
     }
 }
 
@@ -1021,9 +1950,18 @@ class ProbeReceiver : BroadcastReceiver() {
             ?.takeIf { it.isNotEmpty() }
         val peq = intent.getStringExtra(EXTRA_PEQ) == "1"
         val chunk = intent.getStringExtra(EXTRA_CHUNK)?.toIntOrNull() ?: 2048
-        val reportName = intent.getStringExtra(EXTRA_REPORT) ?: AudioPipelineTraceKit.REPORT_FILE
+        val toneOn = intent.getStringExtra(EXTRA_TONE) == "1"
+        val levels = intent.getStringExtra(EXTRA_LEVELS)
+            ?.split(',')?.mapNotNull { it.trim().toDoubleOrNull() }
+            ?.takeIf { it.isNotEmpty() } ?: DEFAULT_TONE_LEVELS
+        val freqs = intent.getStringExtra(EXTRA_FREQS)
+            ?.split(',')?.mapNotNull { it.trim().toDoubleOrNull() }
+            ?.takeIf { it.isNotEmpty() } ?: DEFAULT_TONE_FREQS
+        val reportName = intent.getStringExtra(EXTRA_REPORT)
+            ?: if (toneOn) AudioPipelineTraceKit.TONE_REPORT_FILE else AudioPipelineTraceKit.REPORT_FILE
 
-        if (path != null && !File(path).exists()) {
+        // Mode tone selalu memakai nada sintetis, jadi extra "file" diabaikan.
+        if (!toneOn && path != null && !File(path).exists()) {
             DiagLog.e(TAG, "File tidak ditemukan: $path")
             Log.e(TAG, "File tidak ditemukan: $path")
             return
@@ -1033,20 +1971,34 @@ class ProbeReceiver : BroadcastReceiver() {
         executor.execute {
             try {
                 DiagLog.init(appContext)
-                DiagLog.i(
-                    TAG,
-                    "trace mulai: sumber=${path ?: "sintetis"} " +
-                        "presets=${presets?.joinToString() ?: "SEMUA"} peq=$peq chunk=$chunk"
-                )
-
                 val kit = AudioPipelineTraceKit(chunkFrames = chunk)
-                kit.traceToFile(
-                    input = path?.let { File(it) },
-                    syntheticTarget = File(appContext.filesDir, AudioPipelineTraceKit.SYNTHETIC_FILE),
-                    output = File(appContext.filesDir, reportName),
-                    presetIds = presets,
-                    peqEnabled = peq
-                )
+                if (toneOn) {
+                    DiagLog.i(
+                        TAG,
+                        "trace tone mulai: presets=${presets?.joinToString() ?: "SEMUA"} " +
+                            "levels=${levels.joinToString() { "%.0f".format(Locale.US, it) }} " +
+                            "freqs=${freqs.joinToString() { "%.0f".format(Locale.US, it) }} chunk=$chunk"
+                    )
+                    kit.traceToneToFile(
+                        presetIds = presets,
+                        levelsDb = levels,
+                        freqs = freqs,
+                        output = File(appContext.filesDir, reportName)
+                    )
+                } else {
+                    DiagLog.i(
+                        TAG,
+                        "trace mulai: sumber=${path ?: "sintetis"} " +
+                            "presets=${presets?.joinToString() ?: "SEMUA"} peq=$peq chunk=$chunk"
+                    )
+                    kit.traceToFile(
+                        input = path?.let { File(it) },
+                        syntheticTarget = File(appContext.filesDir, AudioPipelineTraceKit.SYNTHETIC_FILE),
+                        output = File(appContext.filesDir, reportName),
+                        presetIds = presets,
+                        peqEnabled = peq
+                    )
+                }
 
                 DiagLog.i(TAG, "trace selesai; baca ${appContext.filesDir}/$reportName")
             } catch (t: Throwable) {
@@ -1064,6 +2016,13 @@ class ProbeReceiver : BroadcastReceiver() {
         const val EXTRA_PEQ = "peq"
         const val EXTRA_CHUNK = "chunk"
         const val EXTRA_REPORT = "report"
+        const val EXTRA_TONE = "tone"
+        const val EXTRA_LEVELS = "levels"
+        const val EXTRA_FREQS = "freqs"
+
+        /** Default mode tone: dua level yang jauh, empat pita representatif. */
+        val DEFAULT_TONE_LEVELS = listOf(-20.0, -6.0)
+        val DEFAULT_TONE_FREQS = listOf(60.0, 300.0, 3000.0, 10000.0)
 
         private const val TAG = "ProbeReceiver"
 

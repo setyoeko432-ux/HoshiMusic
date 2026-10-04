@@ -1,0 +1,58 @@
+// Shim <atomic> untuk harness freestanding (wasm32 tanpa thread).
+//
+// API-nya sama dengan libc++ supaya hoshi_dsp_core.cpp tidak perlu diubah;
+// implementasi memakai builtin __atomic_* yang oleh LLVM diturunkan menjadi
+// load/store biasa pada target wasm single-threaded.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace std {
+
+enum memory_order {
+    memory_order_relaxed,
+    memory_order_consume,
+    memory_order_acquire,
+    memory_order_release,
+    memory_order_acq_rel,
+    memory_order_seq_cst
+};
+
+template <class T>
+class atomic {
+public:
+    atomic() noexcept : v_(T()) {}
+    atomic(T desired) noexcept : v_(desired) {}
+    atomic(const atomic&) = delete;
+    atomic& operator=(const atomic&) = delete;
+
+    // Bentuk generik `__atomic_load/store` dipakai (bukan `_n`) karena
+    // std::atomic<float> tidak sah untuk varian _n.
+    void store(T desired, memory_order = memory_order_seq_cst) noexcept {
+        __atomic_store(&v_, const_cast<T*>(&desired), __ATOMIC_SEQ_CST);
+    }
+    T load(memory_order = memory_order_seq_cst) const noexcept {
+        T out;
+        __atomic_load(&v_, &out, __ATOMIC_SEQ_CST);
+        return out;
+    }
+    T exchange(T desired, memory_order = memory_order_seq_cst) noexcept {
+        T out;
+        __atomic_exchange(&v_, const_cast<T*>(&desired), &out, __ATOMIC_SEQ_CST);
+        return out;
+    }
+    T fetch_add(T arg, memory_order = memory_order_seq_cst) noexcept { return v_ += arg; }
+    T fetch_sub(T arg, memory_order = memory_order_seq_cst) noexcept { return v_ -= arg; }
+    T operator=(T desired) noexcept { store(desired); return v_; }
+    operator T() const noexcept { return load(); }
+
+private:
+    mutable T v_;
+};
+
+inline void atomic_thread_fence(memory_order) noexcept {
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+} // namespace std

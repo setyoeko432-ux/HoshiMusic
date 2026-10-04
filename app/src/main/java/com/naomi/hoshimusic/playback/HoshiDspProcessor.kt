@@ -288,7 +288,9 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         converter.toFloat(inputBuffer, frames, true)
         val t1 = System.nanoTime()
 
-        engine.process(work, floatBytes)
+        // Data float dimulai dari byte 0 (ensureDirectBuffer() selalu clear()).
+        // Jangan pakai work.position(): toFloat() meninggalkannya di ujung data.
+        engine.process(work, 0, floatBytes)
         val t2 = System.nanoTime()
 
         val output = replaceOutputBuffer(frames * BYTES_PER_16BIT_FRAME)

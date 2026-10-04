@@ -1,0 +1,16 @@
+// Shim <cstdlib> untuk harness freestanding.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+#include "hosi_rt.h"
+
+namespace std {
+inline void free(void* p) { hosi_rt_free(p); }
+} // namespace std
+
+static inline void free(void* p) { hosi_rt_free(p); }
+static inline void* malloc(size_t n) { return hosi_rt_alloc(n); }
+static inline int posix_memalign(void** out, size_t alignment, size_t bytes) {
+    return hoshi_memalign_raw(out, alignment, bytes);
+}

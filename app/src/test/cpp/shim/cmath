@@ -1,0 +1,71 @@
+// Shim <cmath> untuk harness freestanding.
+//
+// Hanya berisi deklarasi yang benar-benar dipakai hoshi_dsp_core.cpp.
+// Implementasinya ada di hosi_rt.cpp (double precision).
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+#include "hosi_rt.h"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#ifndef M_PI_F
+#define M_PI_F 3.14159265358979323846f
+#endif
+
+namespace std {
+
+inline float sqrt(float x) { return __builtin_sqrtf(x); }
+inline double sqrt(double x) { return __builtin_sqrt(x); }
+
+inline float abs(float x) { return __builtin_fabsf(x); }
+inline double abs(double x) { return __builtin_fabs(x); }
+inline int abs(int x) { return x < 0 ? -x : x; }
+inline long abs(long x) { return x < 0 ? -x : x; }
+
+inline bool isfinite(float x) { return __builtin_isfinite(x); }
+inline bool isfinite(double x) { return __builtin_isfinite(x); }
+inline bool isnan(float x) { return __builtin_isnan(x); }
+inline bool isnan(double x) { return __builtin_isnan(x); }
+inline bool isinf(float x) { return __builtin_isinf(x); }
+
+inline float pow(float b, float e) { return (float)hosi_rt_pow((double)b, (double)e); }
+inline double pow(double b, double e) { return hosi_rt_pow(b, e); }
+
+inline float tan(float x) { return hosi_rt_tanf(x); }
+inline double tan(double x) { return (double)hosi_rt_tanf((float)x); }
+
+inline float sin(float x) { return (float)hosi_rt_sin((double)x); }
+inline double sin(double x) { return hosi_rt_sin(x); }
+
+inline float log10(float x) { return hosi_rt_log10f(x); }
+inline double log10(double x) { return hosi_rt_log((double)x) * 0.43429448190325182765; }
+
+inline float log10f(float x) { return hosi_rt_log10f(x); }
+inline float expf(float x) { return hosi_rt_expf(x); }
+inline float exp(float x) { return hosi_rt_expf(x); }
+inline double exp(double x) { return hosi_rt_exp(x); }
+
+} // namespace std
+
+// Versi global C (dipakai tanpa namespace di hoshi_dsp_core.cpp).
+using std::sqrt;
+using std::abs;
+using std::isfinite;
+using std::isnan;
+using std::isinf;
+using std::pow;
+using std::tan;
+using std::sin;
+using std::log10;
+
+static inline float fminf(float a, float b) { return hosi_rt_fminf(a, b); }
+static inline float fmaxf(float a, float b) { return hosi_rt_fmaxf(a, b); }
+static inline float fmin(double a, double b) { return a < b ? (float)a : (float)b; }
+static inline float fmax(double a, double b) { return a > b ? (float)a : (float)b; }
+static inline float fabsf(float x) { return __builtin_fabsf(x); }
+static inline double fabs(double x) { return __builtin_fabs(x); }
+static inline float expf(float x) { return hosi_rt_expf(x); }
+static inline float log10f(float x) { return hosi_rt_log10f(x); }

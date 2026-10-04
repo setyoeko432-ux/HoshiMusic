@@ -81,20 +81,29 @@ class DspNativeEngine(private val tag: String) {
     }
 
     /**
-     * Proses [length] byte float stereo, mulai dari posisi [buffer] saat ini.
-     * Panggil dari audio thread.
+     * Proses [lengthBytes] byte float stereo mulai dari [offsetBytes] di dalam
+     * [buffer]. Panggil dari audio thread.
      *
-     * `position()` diteruskan ke native secara eksplisit.
+     * Offset SENGAJA eksplisit dan TIDAK diturunkan dari `buffer.position()`.
+     *
+     * `PcmFormatConverter.toFloat()` meninggalkan `directBuffer` di posisi
+     * TULIS, yaitu di UJUNG data yang baru ditulis (position == frames * 8).
+     * Versi sebelumnya meneruskan `buffer.position()` sebagai offset, sehingga
+     * native memproses wilayah SETELAH data (nol / sisa buffer lama) sementara
+     * sample yang sebenarnya tidak disentuh sama sekali. Hasilnya: semua
+     * preset terdengar identik, padahal semua indikator (handle, setParams,
+     * telemetri, frame counter) tampak sehat.
+     *
      * `GetDirectBufferAddress()` selalu mengembalikan alamat DASAR buffer dan
-     * mengabaikan `position()`, jadi tanpa offset eksplisit wilayah yang
-     * diproses akan salah begitu saja pada buffer hasil slice/duplikat.
+     * mengabaikan `position()`, jadi pemanggil harus menyebut offset-nya
+     * sendiri; untuk `directBuffer` milik converter, nilainya selalu 0.
      */
-    fun process(buffer: ByteBuffer, length: Int) {
+    fun process(buffer: ByteBuffer, offsetBytes: Int, lengthBytes: Int) {
         val h = handleAtomic.get()
-        if (h == 0L || !isInitialized || length < 8) return
+        if (h == 0L || !isInitialized || lengthBytes < 8) return
         // Sengaja tanpa safeNativeCall: handle sudah divalidasi di atas,
         // dan try/catch per buffer menambah biaya di jalur audio.
-        nativeProcess(h, buffer, length, buffer.position())
+        nativeProcess(h, buffer, lengthBytes, offsetBytes)
     }
 
     fun flush(): Boolean {

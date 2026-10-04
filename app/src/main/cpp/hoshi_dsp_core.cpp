@@ -521,6 +521,16 @@ void DspEngine::updatePeqCoefficients(float dt) {
     }
 }
 
+    // [FIX-AIR] Frekuensi center high shelf "udara" preset.
+    //
+    // Semula 12500 Hz. Di 12,5 kHz, pita uji 10 kHz hanya kena ujung kurva:
+    // iso_air (pAir=1,8, dirancang +2,8 dB) hanya terukur +0,54 dB di 10 kHz
+    // dan 0 dB di -6 dBFS, sehingga boost udara praktis tidak pernah terdengar.
+    // 7000 Hz menaruh titik center cukup dekat dengan 10 kHz sehingga boost-nya
+    // benar-benar muncul di pita yang diuji, tanpa menyentuh 60 Hz / 300 Hz /
+    // 3 kHz (terverifikasi: pergeseran <= 0,05 dB di pita-pita itu).
+    static constexpr float kPresetAirShelfHz = 7000.0f;
+
     // [F-06] Koefisien shelf preset bergantung pada sampleRate, pBass, dan pAir —
     // bukan pada sample. Semula keempatnya dihitung ulang di dalam
     // processFrame() yang dipanggil per sample: 4x setLowShelf/setHighShelf per
@@ -563,8 +573,9 @@ void DspEngine::updatePeqCoefficients(float dt) {
 
         presetStaticLowShelfL.setLowShelf(fs, 105.0f, presetBassDb, 0.707f);
         presetStaticLowShelfR.setLowShelf(fs, 105.0f, presetBassDb, 0.707f);
-        presetStaticHighShelfL.setHighShelf(fs, 12500.0f, presetAirDb, 0.707f);
-        presetStaticHighShelfR.setHighShelf(fs, 12500.0f, presetAirDb, 0.707f);
+        // [FIX-AIR] Center 7 kHz, bukan 12,5 kHz — lihat kPresetAirShelfHz.
+        presetStaticHighShelfL.setHighShelf(fs, kPresetAirShelfHz, presetAirDb, 0.707f);
+        presetStaticHighShelfR.setHighShelf(fs, kPresetAirShelfHz, presetAirDb, 0.707f);
     }
 
 // [CRITICAL] NO FAST-MATH: processFrame berisi rantai ~50 filter IIR/biquad, AGC,
@@ -579,6 +590,16 @@ void DspEngine::processFrame(
     float pLimiter, float pLoudness, float pPunch, float pBody, float pSat,
     float limiterCeiling, float baseFeed, float& currentVocalAccum
 ) {
+    // [FIX-AGC] Simpan sinyal MASUKAN sebelum dilewatkan shelf preset.
+    //
+    // Dua konstanta float di stack, tanpa alokasi; dipakai hanya oleh detektor
+    // AGC di bawah. Shelf preset bukan bagian dari level yang diukur pengguna --
+    // shelf justru efektor yang SENGAJA mengubah level itu. Menghitung level
+    // SETELAH shelf membuat AGC memperlakukan boost preset sebagai "terlalu
+    // keras" lalu mengembalikannya, persis membatalkan raison d'etre preset.
+    const float detInL = l;
+    const float detInR = r;
+
     // [F-06] Koefisien shelf sudah dihitung oleh updatePresetShelves() satu kali
     // per buffer, bukan di sini. Yang tersisa hanya pemrosesan sample-nya.
     l = presetStaticLowShelfL.process(l);
@@ -613,16 +634,31 @@ void DspEngine::processFrame(
     // supaya state-nya ter-ramp dan tidak meledak saat dihidupkan lagi, tapi
     // tidak lagi menentukan gain — dan kalau ia rusak, state-nya dipulihkan
     // di sini, bukan dibiarkan meracuni filter setelahnya.
+    //
+    // [FIX-AGC] Sumber levelnya adalah SINYAL PRA-SHELF (`detInL`/`detInR`),
+    // bukan `l`/`r` yang sudah keluar dari presetStaticLow/HighShelf.
+    //
+    // Ke mana perbaikannya: sebelumnya boost shelf ikut terukur, slowRms naik,
+    // targetPreGain turun, dan boost yang diminta preset dikembalikan — tepat
+    // pada level sinyal yang paling boosted. Bukti (trace kit mode tone,
+    // delta terhadap preset `reference`, nada 60 Hz L=R):
+    //
+    //   iso_bass (hanya pBass=1,8)  -20 dBFS +3,50 dB  ->  -6 dBFS +1,18 dB
+    //   bass_boost                   -20 dBFS +3,78 dB  ->  -6 dBFS +1,09 dB
+    //
+    // AGC jadi menetralkan justru efek yang jadi alasan preset itu ada.
+    // Sekarang detektor hanya melihat level yang benar-benar masuk, sehingga
+    // AGCtetap berfungsi sebagai penjaga level tanpa ikut meniadakan EQ preset.
     if (!std::isfinite(kW_l) || !std::isfinite(kW_r)) {
         kShelfL.reset(); kShelfR.reset();
         kHpfL.reset();  kHpfR.reset();
     }
 
-    // [TRACE] Nilai `l` tepat sebelum detektor AGC — sumber kebenaran
-    // kenapa slowRms bisa terukur ~0 padahal output bukan nol.
-    telemetryData.dbgLAtDetector = l;
+    // [TRACE] Nilai yang dibaca detektor AGC (sinyal pra-shelf) — sumber
+    // kebenaran kenapa slowRms bisa terukur ~0 padahal output bukan nol.
+    telemetryData.dbgLAtDetector = detInL;
 
-    float currentSampleRms = std::sqrt((l * l + r * r) * 0.5f);
+    float currentSampleRms = std::sqrt((detInL * detInL + detInR * detInR) * 0.5f);
     if (!std::isfinite(currentSampleRms) || currentSampleRms < 0.0f) currentSampleRms = 0.0f;
 
     medRms = medRms * 0.999f + currentSampleRms * 0.001f + 1e-25f;

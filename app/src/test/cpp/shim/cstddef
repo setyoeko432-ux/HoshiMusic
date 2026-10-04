@@ -1,0 +1,5 @@
+// Shim <cstddef> untuk harness freestanding.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>

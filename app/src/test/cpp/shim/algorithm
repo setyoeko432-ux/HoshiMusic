@@ -1,0 +1,5 @@
+// Shim <algorithm> untuk harness freestanding.
+//
+// hoshi_dsp_core.cpp hanya meng-include header ini tanpa memakainya, jadi
+// isinya kosong.
+#pragma once
