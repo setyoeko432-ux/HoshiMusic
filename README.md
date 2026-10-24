@@ -33,6 +33,7 @@ Pemutar musik Android **lokal, pribadi, tanpa iklan, tanpa akun, dan tanpa izin 
 - **ReplayGain** (pembacaan tag track/album gain & peak)
 - **Preamp** (penyesuaian gain input dB)
 - **Boutique Bypass** — bypass paksa efek OEM (SKTune/Dolby) dengan routing prioritas tinggi
+- Catatan: shim matematika harness menggunakan double precision. Valid untuk regresi perilaku dan perbandingan output harness, bukan klaim bit-identical terhadap floating-point/device implementation.
 
 ### 📝 Lirik & Romanisasi
 - **Parser LRC** (versi 3) dengan validasi cache invalidation

@@ -90,4 +90,23 @@ class DspContractTest {
         val (bands, _) = DspPresets.parseAutoEq(longText)
         assertEquals("Parser tidak boleh melebihi DSP_PEQ_MAX", 10, bands.size)
     }
+
+    @Test
+    fun testPcmEncode16BitRounding() {
+        val converter = PcmFormatConverter()
+        val direct = java.nio.ByteBuffer.allocateDirect(16).order(java.nio.ByteOrder.nativeOrder())
+        val output = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.nativeOrder())
+
+        // Input samples: 0.5 / 32767.0 (should round to 1) and -0.5 / 32767.0 (should round to -1)
+        direct.putFloat(0.5f / 32767.0f)
+        direct.putFloat(-0.5f / 32767.0f)
+
+        converter.encode16Bit(direct, output, 1)
+
+        output.flip()
+        val s1 = output.short
+        val s2 = output.short
+        assertEquals(1.toShort(), s1)
+        assertEquals((-1).toShort(), s2)
+    }
 }

@@ -226,16 +226,19 @@ private:
     TptSvf analyzeMidHpfL, analyzeMidHpfR, analyzeMidLpfL, analyzeMidLpfR;
     TptSvf analyzeHighL, analyzeHighR;
 
-    TptSvf mSubCut, mMudCut, mLowMidGapCut, mBoxinessCut, mVocalFormant, mVocalPresence, mConsonantPluck, mUltraAirShelf;
+    TptSvf mSubCut, mMudCut, mLowMidGapCut, mWarmBody, mBoxinessCut, mVocalFormant, mVocalPresence, mConsonantPluck, mUltraAirShelf;
     TptSvf mHarshGuard;              // B1: dip proteksi @3.5 kHz (skala AIR)
     TptSvf sLowCut, sPresence, sAirShelf, sDecorrelator1, sDecorrelator2;
+    TptSvf decorrHpf, decorrLpf;     // Band-limited pseudo-stereo decorrelator
     TptSvf bassExtractLpf, bassHarmonicHpf_gen, bassHarmonicLpf_gen, bassHarmonicHpf_final;
     TptSvf deEsserHpf, deEsserLpf, deEsserNotch;
     TptSvf essBand[3];               // C3: bank BP pelacak sibilance (5.8k/7.5k/9.2k)
     float essEnv[3] = {0.0f, 0.0f, 0.0f};
     float curNotchFc = 7500.0f;      // C3: posisi notch de-esser saat ini (di-glide)
+    float curWarmBoostDb = 0.0f;
 
     TptSvf exciterHpfL, exciterHpfR;
+    TptSvf exciterLpfL, exciterLpfR;  // Anti-aliasing LPF @13.5 kHz for exciter
     TptSvf crossfeedLpfL, crossfeedLpfR;
 
     // Sub-band bass protector: batasi hanya komponen <150 Hz agar driver kecil

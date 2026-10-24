@@ -181,18 +181,23 @@ struct PresetSpec {
 // Urutan = DspPresets.kt: bass, vocal, air, warmth, exciter, transient,
 // width, deesser, crossfeed, agc, limiter, loudness, punch, body, saturate.
 const PresetSpec kPresets[] = {
-    {"reference",  {1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
-    {"ref_nocf",   {1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,0.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
-    {"flat",       {1.00f,0.00f,1.00f,1.00f,0.00f,0.00f,1.00f,0.00f,0.00f,1.0f,1.0f,0.0f,0.0f,0.0f,0.0f}},
-    {"bass_boost", {1.80f,0.95f,0.95f,1.20f,0.90f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.35f,1.20f,1.40f}},
-    {"bright",     {0.90f,1.05f,1.50f,0.85f,1.40f,1.05f,1.05f,1.40f,1.00f,1.0f,1.0f,1.0f,1.20f,0.85f,0.80f}},
-    {"air_shimmer",{0.95f,1.00f,1.80f,0.80f,1.50f,1.10f,1.15f,1.40f,1.00f,1.0f,1.0f,1.0f,1.15f,0.90f,0.75f}},
-    {"vocal",      {0.90f,1.45f,1.05f,0.95f,1.00f,1.00f,1.00f,1.25f,1.00f,1.0f,1.0f,1.0f,1.15f,1.00f,1.25f}},
-    {"analog",     {1.15f,0.95f,0.70f,1.40f,0.50f,0.90f,1.00f,1.00f,1.10f,1.0f,1.0f,1.0f,1.10f,1.20f,1.60f}},
-    {"v_shape",    {1.50f,0.75f,1.35f,0.90f,1.20f,1.05f,1.15f,1.20f,1.00f,1.0f,1.0f,1.0f,1.30f,1.15f,1.20f}},
-    {"soft",       {0.95f,0.80f,0.85f,1.10f,0.70f,0.70f,1.05f,1.00f,1.20f,1.15f,0.70f,1.0f,0.75f,1.10f,1.20f}},
-    {"iso_bass",   {1.80f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
-    {"iso_air",    {1.00f,1.00f,1.80f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
+    {"reference",   {1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
+    {"ref_nocf",    {1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,0.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
+    {"flat",        {1.00f,0.00f,1.00f,1.00f,0.00f,1.00f,1.00f,0.00f,0.00f,0.0f,1.0f,0.0f,1.00f,1.00f,0.00f}},
+    {"dev_preference",{1.25f,1.35f,1.45f,0.90f,1.30f,1.25f,1.30f,1.30f,1.00f,1.0f,1.0f,1.0f,1.30f,0.90f,1.10f}},
+    {"bass_boost",  {2.00f,0.95f,0.90f,1.10f,0.80f,1.10f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.50f,1.30f,1.40f}},
+    {"bright",      {0.80f,1.10f,1.75f,0.80f,1.55f,1.15f,1.10f,1.45f,1.00f,1.0f,1.0f,1.0f,1.25f,0.85f,0.70f}},
+    {"air_shimmer", {0.90f,1.00f,2.00f,0.75f,1.75f,1.20f,1.35f,1.50f,1.00f,1.0f,1.0f,1.0f,1.20f,0.80f,0.60f}},
+    {"vocal",       {0.85f,1.70f,1.10f,0.85f,1.10f,1.05f,0.95f,1.50f,1.00f,1.0f,1.0f,1.0f,1.10f,0.95f,1.15f}},
+    {"analog",      {1.25f,0.95f,0.65f,1.55f,0.50f,0.85f,0.95f,1.00f,1.10f,1.0f,1.0f,1.0f,0.95f,1.35f,1.70f}},
+    {"v_shape",     {1.75f,0.65f,1.65f,0.80f,1.35f,1.20f,1.25f,1.25f,1.00f,1.0f,1.0f,1.0f,1.40f,1.10f,1.20f}},
+    {"soft",        {0.95f,0.80f,0.50f,1.15f,0.30f,0.65f,1.00f,1.20f,1.20f,1.2f,0.8f,1.0f,0.65f,1.15f,0.80f}},
+    {"iso_bass",    {1.80f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
+    {"iso_air",     {1.00f,1.00f,1.80f,1.00f,1.00f,1.00f,1.00f,1.00f,1.00f,1.0f,1.0f,1.0f,1.00f,1.00f,1.00f}},
+    {"warm",        {1.30f,0.90f,0.65f,1.60f,0.40f,0.85f,1.00f,1.00f,1.10f,1.0f,1.0f,1.0f,0.85f,1.35f,1.45f}},
+    {"stage",       {1.00f,0.85f,1.35f,0.85f,1.20f,1.20f,1.65f,1.10f,0.80f,1.0f,1.0f,1.0f,1.30f,1.00f,0.90f}},
+    {"late_night",  {1.15f,0.90f,0.80f,1.10f,0.50f,0.60f,1.00f,1.10f,1.30f,1.4f,0.6f,1.7f,0.60f,1.20f,1.25f}},
+    {"tube_warmth", {1.20f,1.05f,0.70f,1.65f,0.80f,0.90f,0.95f,1.15f,1.00f,1.0f,1.0f,1.15f,1.00f,1.50f,1.85f}},
 };
 const int kPresetCount = (int)(sizeof(kPresets) / sizeof(kPresets[0]));
 
@@ -476,6 +481,261 @@ void runDynCase(const PresetSpec& preset) {
     delete dsp;
 }
 
+// TAMBAHAN 1: Test pengaruh block size terhadap adaptive coefficients & gain
+void runBlockSizeTest() {
+    const int sizes[] = {512, 1024, 2048, 4096};
+    const PresetSpec* p = findPreset("reference");
+    if (!p) return;
+    const float amp = amplitudeFromDb(-14.0f);
+
+    for (int s = 0; s < 4; ++s) {
+        const int bs = sizes[s];
+        hoshi::DspEngine* dsp = new hoshi::DspEngine();
+        dsp->init(kSampleRate);
+        dsp->setParams(p->p, hoshi::DspEngine::PARAM_COUNT);
+        dsp->setAdaptiveDspEnabled(true);
+
+        float* buf = (float*)hosi_rt_alloc((size_t)bs * 2u * sizeof(float));
+        Rng rng(0x12345678u);
+
+        double inE = 0.0, outE = 0.0;
+        int measured = 0;
+        const int totalFrames = 3 * kSampleRate;
+        const int warmup = 2 * kSampleRate;
+
+        for (int frame = 0; frame < totalFrames; frame += bs) {
+            for (int i = 0; i < bs; ++i) {
+                const float sl = rng.nextUnit() * amp;
+                const float sr = rng.nextUnit() * amp;
+                buf[i * 2] = sl;
+                buf[i * 2 + 1] = sr;
+                if (frame + i >= warmup) {
+                    inE += 0.5 * ((double)sl * sl + (double)sr * sr);
+                    measured++;
+                }
+            }
+            dsp->process(buf, bs);
+            for (int i = 0; i < bs; ++i) {
+                if (frame + i >= warmup) {
+                    const float l = buf[i * 2];
+                    const float r = buf[i * 2 + 1];
+                    outE += 0.5 * ((double)l * l + (double)r * r);
+                }
+            }
+        }
+        const double gainDb = dbFromPower(outE / (inE + 1e-30));
+        const hoshi::DspTelemetryData t = dsp->getTelemetry();
+
+        emitStr("BLOCKSIZE|size=");
+        emitFixed((double)bs, 0);
+        emitStr("|gainDb=");
+        emitFixed(gainDb, 3);
+        emitStr("|airDb=");
+        emitFixed(t.curAirBoostDb, 3);
+        emitStr("|mudDb=");
+        emitFixed(t.curMudCutDb, 3);
+        emitChar('\n');
+
+        hosi_rt_free(buf);
+        delete dsp;
+    }
+}
+
+// TAMBAHAN 3: Test respon systemVolume
+void runSystemVolumeTest() {
+    const float sysVols[] = {0.3f, 0.5f, 1.0f};
+    const PresetSpec* p = findPreset("reference");
+    if (!p) return;
+    const float amp = amplitudeFromDb(-14.0f);
+
+    for (int v = 0; v < 3; ++v) {
+        const float sysVol = sysVols[v];
+        hoshi::DspEngine* dsp = new hoshi::DspEngine();
+        dsp->init(kSampleRate);
+        dsp->setParams(p->p, hoshi::DspEngine::PARAM_COUNT);
+        dsp->setSystemVolume(sysVol);
+        dsp->setAdaptiveDspEnabled(true);
+
+        float* buf = (float*)hosi_rt_alloc((size_t)kBlockFrames * 2u * sizeof(float));
+        Rng rng(0x87654321u);
+
+        double inE = 0.0, outE = 0.0;
+        int measured = 0;
+        const int totalFrames = 3 * kSampleRate;
+        const int warmup = 2 * kSampleRate;
+
+        for (int frame = 0; frame < totalFrames; frame += kBlockFrames) {
+            for (int i = 0; i < kBlockFrames; ++i) {
+                const float sl = rng.nextUnit() * amp;
+                const float sr = rng.nextUnit() * amp;
+                buf[i * 2] = sl;
+                buf[i * 2 + 1] = sr;
+                if (frame + i >= warmup) {
+                    inE += 0.5 * ((double)sl * sl + (double)sr * sr);
+                    measured++;
+                }
+            }
+            dsp->process(buf, kBlockFrames);
+            for (int i = 0; i < kBlockFrames; ++i) {
+                if (frame + i >= warmup) {
+                    const float l = buf[i * 2];
+                    const float r = buf[i * 2 + 1];
+                    outE += 0.5 * ((double)l * l + (double)r * r);
+                }
+            }
+        }
+        const double gainDb = dbFromPower(outE / (inE + 1e-30));
+        const hoshi::DspTelemetryData t = dsp->getTelemetry();
+
+        emitStr("SYSVOL|vol=");
+        emitFixed((double)sysVol, 2);
+        emitStr("|gainDb=");
+        emitFixed(gainDb, 3);
+        emitStr("|airDb=");
+        emitFixed(t.curAirBoostDb, 3);
+        emitStr("|vbass=");
+        emitFixed(t.curVirtualBassAmount, 4);
+        emitChar('\n');
+
+        hosi_rt_free(buf);
+        delete dsp;
+    }
+}
+
+// TAMBAHAN 2: Mode harness "music" (10-band energy measurement)
+void runMusicMode() {
+    const float fCenters[10] = {40.0f, 90.0f, 185.0f, 375.0f, 750.0f, 1500.0f, 3000.0f, 6000.0f, 10000.0f, 14000.0f};
+    const float fQs[10] = {0.8f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+
+    const PresetSpec* refPreset = findPreset("reference");
+    if (!refPreset) return;
+
+    double refBandEnergy[10] = {0};
+    {
+        hoshi::DspEngine* dsp = new hoshi::DspEngine();
+        dsp->init(kSampleRate);
+        dsp->setParams(refPreset->p, hoshi::DspEngine::PARAM_COUNT);
+        dsp->setAdaptiveDspEnabled(true);
+
+        hoshi::TptSvf refBandsL[10], refBandsR[10];
+        for (int b = 0; b < 10; ++b) {
+            refBandsL[b].setBandPass(kSampleRate, fCenters[b], fQs[b]);
+            refBandsR[b].setBandPass(kSampleRate, fCenters[b], fQs[b]);
+        }
+
+        Rng rngL(0x11111111u), rngR(0x22222222u);
+        float* buf = (float*)hosi_rt_alloc((size_t)kBlockFrames * 2u * sizeof(float));
+        const float amp = amplitudeFromDb(-14.0f);
+        const int totalFrames = 3 * kSampleRate;
+        const int warmup = 2 * kSampleRate;
+
+        float b0L = 0, b1L = 0, b2L = 0, b0R = 0, b1R = 0, b2R = 0;
+
+        for (int frame = 0; frame < totalFrames; frame += kBlockFrames) {
+            for (int i = 0; i < kBlockFrames; ++i) {
+                float whiteL = rngL.nextUnit() * amp;
+                float whiteR = rngR.nextUnit() * amp;
+                b0L = 0.9976f * b0L + whiteL * 0.0990460f;
+                b1L = 0.9630f * b1L + whiteL * 0.2965164f;
+                b2L = 0.5700f * b2L + whiteL * 1.0526913f;
+                float pinkL = b0L + b1L + b2L + whiteL * 0.1848f;
+
+                b0R = 0.9976f * b0R + whiteR * 0.0990460f;
+                b1R = 0.9630f * b1R + whiteR * 0.2965164f;
+                b2R = 0.5700f * b2R + whiteR * 1.0526913f;
+                float pinkR = b0R + b1R + b2R + whiteR * 0.1848f;
+
+                float mid = (pinkL + pinkR) * 0.5f;
+                buf[i * 2] = mid * 0.7f + pinkL * 0.3f;
+                buf[i * 2 + 1] = mid * 0.7f + pinkR * 0.3f;
+            }
+            dsp->process(buf, kBlockFrames);
+            for (int i = 0; i < kBlockFrames; ++i) {
+                if (frame + i >= warmup) {
+                    float l = buf[i * 2];
+                    float r = buf[i * 2 + 1];
+                    for (int b = 0; b < 10; ++b) {
+                        float bl = refBandsL[b].process(l);
+                        float br = refBandsR[b].process(r);
+                        refBandEnergy[b] += 0.5 * ((double)bl * bl + (double)br * br);
+                    }
+                }
+            }
+        }
+        hosi_rt_free(buf);
+        delete dsp;
+    }
+
+    for (int pi = 0; pi < kPresetCount; ++pi) {
+        const PresetSpec& preset = kPresets[pi];
+        if (!idMatchesFilter(g_presetFilter, preset.id)) continue;
+
+        hoshi::DspEngine* dsp = new hoshi::DspEngine();
+        dsp->init(kSampleRate);
+        dsp->setParams(preset.p, hoshi::DspEngine::PARAM_COUNT);
+        dsp->setAdaptiveDspEnabled(true);
+
+        hoshi::TptSvf bandsL[10], bandsR[10];
+        for (int b = 0; b < 10; ++b) {
+            bandsL[b].setBandPass(kSampleRate, fCenters[b], fQs[b]);
+            bandsR[b].setBandPass(kSampleRate, fCenters[b], fQs[b]);
+        }
+
+        double bandEnergy[10] = {0};
+        Rng rngL(0x11111111u), rngR(0x22222222u);
+        float* buf = (float*)hosi_rt_alloc((size_t)kBlockFrames * 2u * sizeof(float));
+        const float amp = amplitudeFromDb(-14.0f);
+        const int totalFrames = 3 * kSampleRate;
+        const int warmup = 2 * kSampleRate;
+
+        float b0L = 0, b1L = 0, b2L = 0, b0R = 0, b1R = 0, b2R = 0;
+
+        for (int frame = 0; frame < totalFrames; frame += kBlockFrames) {
+            for (int i = 0; i < kBlockFrames; ++i) {
+                float whiteL = rngL.nextUnit() * amp;
+                float whiteR = rngR.nextUnit() * amp;
+                b0L = 0.9976f * b0L + whiteL * 0.0990460f;
+                b1L = 0.9630f * b1L + whiteL * 0.2965164f;
+                b2L = 0.5700f * b2L + whiteL * 1.0526913f;
+                float pinkL = b0L + b1L + b2L + whiteL * 0.1848f;
+
+                b0R = 0.9976f * b0R + whiteR * 0.0990460f;
+                b1R = 0.9630f * b1R + whiteR * 0.2965164f;
+                b2R = 0.5700f * b2R + whiteR * 1.0526913f;
+                float pinkR = b0R + b1R + b2R + whiteR * 0.1848f;
+
+                float mid = (pinkL + pinkR) * 0.5f;
+                buf[i * 2] = mid * 0.7f + pinkL * 0.3f;
+                buf[i * 2 + 1] = mid * 0.7f + pinkR * 0.3f;
+            }
+            dsp->process(buf, kBlockFrames);
+            for (int i = 0; i < kBlockFrames; ++i) {
+                if (frame + i >= warmup) {
+                    float l = buf[i * 2];
+                    float r = buf[i * 2 + 1];
+                    for (int b = 0; b < 10; ++b) {
+                        float bl = bandsL[b].process(l);
+                        float br = bandsR[b].process(r);
+                        bandEnergy[b] += 0.5 * ((double)bl * bl + (double)br * br);
+                    }
+                }
+            }
+        }
+
+        emitStr("MUSIC|");
+        emitStr(preset.id);
+        for (int b = 0; b < 10; ++b) {
+            emitChar('|');
+            double deltaDb = dbFromPower(bandEnergy[b] / (refBandEnergy[b] + 1e-30));
+            emitFixed(deltaDb, 2);
+        }
+        emitChar('\n');
+
+        hosi_rt_free(buf);
+        delete dsp;
+    }
+}
+
 } // namespace
 
 // Probe: apakah process() benar-benar mengubah buffer? Masukan konstan
@@ -692,6 +952,10 @@ for (int i = 0; i < 6; ++i) {
     }
     runDynCase(*p);
 }
+
+runBlockSizeTest();
+runSystemVolumeTest();
+runMusicMode();
 
     emitStr("DONE|cases=");
     emitFixed((double)casesRun, 0);

@@ -333,4 +333,40 @@ class DspPresetTest {
         val second = DspParamResolver.resolve("warm", emptyList(), null)
         assertFalse("Setiap resolusi harus mengembalikan array baru", first === second)
     }
+
+    // ================================================================
+    // Matriks Identitas Sonik & Karakterisitik Bidirectional
+    // ================================================================
+
+    @Test
+    fun `setiap preset memiliki identitas sonik dominan yang terukur dan terdistribusi`() {
+        val bassBoost = DspPresets.builtinById("bass_boost")!!
+        val vocal = DspPresets.builtinById("vocal")!!
+        val airShimmer = DspPresets.builtinById("air_shimmer")!!
+        val stage = DspPresets.builtinById("stage")!!
+        val tubeWarmth = DspPresets.builtinById("tube_warmth")!!
+        val soft = DspPresets.builtinById("soft")!!
+        val lateNight = DspPresets.builtinById("late_night")!!
+
+        assertTrue("Bass Boost harus mendominasi parameter BASS", bassBoost.params[DspPresets.IDX_BASS] >= 2.0f)
+        assertTrue("Vocal Clarity harus mendominasi parameter VOCAL", vocal.params[DspPresets.IDX_VOCAL] >= 1.6f)
+        assertTrue("Crystal Air harus mendominasi parameter AIR", airShimmer.params[DspPresets.IDX_AIR] >= 1.9f)
+        assertTrue("Instrument Stage harus mendominasi parameter WIDTH", stage.params[DspPresets.IDX_WIDTH] >= 1.60f)
+        assertTrue("Vintage Tube harus mendominasi parameter SATURATE", tubeWarmth.params[DspPresets.IDX_SATURATE] >= 1.80f)
+        assertTrue("Soft harus memiliki transient di bawah 1.0 (diredam)", soft.params[DspPresets.IDX_TRANSIENT] < 1.0f)
+        assertTrue("Late Night harus memiliki kompensasi LOUDNESS tinggi", lateNight.params[DspPresets.IDX_LOUDNESS] >= 1.50f)
+    }
+
+    @Test
+    fun `parameter bidirectional TRANSIENT dan BODY mencakup nilai di atas dan di bawah unity`() {
+        val transientAbove = DspPresets.BUILTINS.any { it.params[DspPresets.IDX_TRANSIENT] > 1.0f }
+        val transientBelow = DspPresets.BUILTINS.any { it.params[DspPresets.IDX_TRANSIENT] < 1.0f }
+        val bodyAbove = DspPresets.BUILTINS.any { it.params[DspPresets.IDX_BODY] > 1.0f }
+        val bodyBelow = DspPresets.BUILTINS.any { it.params[DspPresets.IDX_BODY] < 1.0f }
+
+        assertTrue("Translent harus memiliki nilai > 1.0 (emphasis)", transientAbove)
+        assertTrue("Transient harus memiliki nilai < 1.0 (softening)", transientBelow)
+        assertTrue("Body harus memiliki nilai > 1.0 (sustained body)", bodyAbove)
+        assertTrue("Body harus memiliki nilai < 1.0 (tight decay)", bodyBelow)
+    }
 }

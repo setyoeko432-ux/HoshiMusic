@@ -58,73 +58,56 @@ object DspPresets {
         DspPreset(
             id = "dev_preference", title = "Preferensi Developer",
             subtitle = "Signature developer: bright terbuka, vokal maju, imaging luas, transien instrumen tajam",
-            // Signature khas developer (tidak lagi identik dgn Reference):
-            // lebih bright & berkilau, vokal/konsonan maju, side imaging dilebarkan,
-            // pukulan transien instrumen ditajamkan; de-esser ikut naik agar tetap bersih.
-            params = listOf(1.00f, 1.30f, 1.35f, 0.90f, 1.25f, 1.15f, 1.20f, 1.35f, 1f, 1f, 1f, 1f, 1.30f, 0.95f, 1.10f)
+            params = listOf(1.25f, 1.35f, 1.45f, 0.90f, 1.30f, 1.25f, 1.30f, 1.30f, 1f, 1f, 1f, 1f, 1.30f, 0.90f, 1.10f)
         ),
         DspPreset(
             id = "analog", title = "Analog Warmth", subtitle = "Pita analog virtual: glue hangat, punch terjaga — showcase saturasi",
-            // Diambil dari 12 nilai Warm lalu ditambah Punch/Body/Saturate khas pita analog:
-            params = listOf(1.15f, 0.95f, 0.70f, 1.40f, 0.50f, 0.90f, 1.00f, 1.00f, 1.10f, 1f, 1f, 1f, 1.10f, 1.20f, 1.60f)
+            params = listOf(1.25f, 0.95f, 0.65f, 1.55f, 0.50f, 0.85f, 0.95f, 1.00f, 1.10f, 1f, 1f, 1f, 0.95f, 1.35f, 1.70f)
         ),
         DspPreset(
             id = "flat", title = "Flat",
-            subtitle = "Nol pewarnaan tambahan di atas baseline mesin (AGC & limiter tetap aktif)",
-            // [DEFECT 6] Nilai IDX_BASS/IDX_AIR/IDX_WARMTH dinaikkan ke 1.0f.
-            //
-            // Semuanya 0f somber tidak netral, padahal tidak. Di native:
-            //   presetBassDb = (pBass - 1) * 4.5  -> 0f = -4.5 dB low shelf @105 Hz
-            //   presetAirDb  = (pAir  - 1) * 3.5  -> 0f = -3.5 dB high shelf @7 kHz
-            //   warmDiv      = 1 / max(pWarm, 0.25) -> 0f = 4x, jadi mud cut 280 Hz
-            //                                      jadi -4.8 s/d -8 dB
-            // Jadi "Flat" justru memotong bass dan udara — persis kebalikan dari
-            // yang biasanya diharapkan pengguna, dan terbaca sebagai "bypass".
-            //
-            // 1.0f membuat shelf 0 dB dan warmDiv 1.0 (tanpa mud cut berlebih).
-            // Sisa adaptive baseline mesin tetap berlaku, sama seperti preset
-            // `reference` — itu perilaku mesin, bukan preset ini.
-            params = listOf(1f, 0f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f, 0f, 0f)
+            subtitle = "Nol pewarnaan tambahan di atas baseline mesin (limiter tetap aktif)",
+            params = listOf(1f, 0f, 1f, 1f, 0f, 1f, 1f, 0f, 0f, 0f, 1f, 0f, 1f, 1f, 0f)
         ),
         DspPreset(
             id = "warm", title = "Warm", subtitle = "Body 200–500 Hz naik, treble rileks — analog & nyaman",
-            params = listOf(1.15f, 0.95f, 0.70f, 1.40f, 0.50f, 0.90f, 1.00f, 1.00f, 1.10f, 1f, 1f, 1f, 0.90f, 1.25f, 1.50f)
+            params = listOf(1.30f, 0.90f, 0.65f, 1.60f, 0.40f, 0.85f, 1.00f, 1.00f, 1.10f, 1f, 1f, 1f, 0.85f, 1.35f, 1.45f)
         ),
         DspPreset(
             id = "bright", title = "Bright", subtitle = "Kilau udara & detail dinaikkan — terbuka namun terkontrol",
-            params = listOf(0.90f, 1.05f, 1.50f, 0.85f, 1.40f, 1.05f, 1.05f, 1.40f, 1.00f, 1f, 1f, 1f, 1.20f, 0.85f, 0.80f)
+            params = listOf(0.80f, 1.10f, 1.75f, 0.80f, 1.55f, 1.15f, 1.10f, 1.45f, 1.00f, 1f, 1f, 1f, 1.25f, 0.85f, 0.70f)
         ),
         DspPreset(
             id = "soft", title = "Soft", subtitle = "Transien & treble diredam, AGC lembut — halus di telinga",
-            params = listOf(0.95f, 0.80f, 0.85f, 1.10f, 0.70f, 0.70f, 1.05f, 1.00f, 1.20f, 1.15f, 0.70f, 1f, 0.75f, 1.10f, 1.20f)
+            params = listOf(0.95f, 0.80f, 0.50f, 1.15f, 0.30f, 0.65f, 1.00f, 1.20f, 1.20f, 1.20f, 0.80f, 1f, 0.65f, 1.15f, 0.80f)
         ),
         DspPreset(
             id = "bass_boost", title = "Bass Boost", subtitle = "Low shelf ~105 Hz didorong kuat — dentum dalam & tebal",
-            params = listOf(1.80f, 0.95f, 0.95f, 1.20f, 0.90f, 1.00f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1f, 1.35f, 1.20f, 1.40f)
+            params = listOf(2.00f, 0.95f, 0.90f, 1.10f, 0.80f, 1.10f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1f, 1.50f, 1.30f, 1.40f)
         ),
         DspPreset(
             id = "vocal", title = "Vocal Clarity", subtitle = "Presence 2–4 kHz maju — vokal jernih di depan",
-            params = listOf(0.90f, 1.45f, 1.05f, 0.95f, 1.00f, 1.00f, 1.00f, 1.25f, 1.00f, 1f, 1f, 1f, 1.15f, 1.00f, 1.25f)
+            params = listOf(0.85f, 1.70f, 1.10f, 0.85f, 1.10f, 1.05f, 0.95f, 1.50f, 1.00f, 1f, 1f, 1f, 1.10f, 0.95f, 1.15f)
         ),
         DspPreset(
             id = "stage", title = "Instrum. Stage", subtitle = "Stereo melebar, transien terjaga — panggung instrument luas",
-            params = listOf(1.00f, 0.90f, 1.15f, 1.00f, 1.10f, 1.15f, 1.30f, 1.05f, 1.00f, 1f, 1f, 1f, 1.25f, 1.05f, 1.00f)
+            params = listOf(1.00f, 0.85f, 1.35f, 0.85f, 1.20f, 1.20f, 1.65f, 1.10f, 0.80f, 1f, 1f, 1f, 1.30f, 1.00f, 0.90f)
         ),
         DspPreset(
             id = "v_shape", title = "V-Shaped", subtitle = "Bass & treble energik, midland mundur — karakter V ala Head-Fi",
-            params = listOf(1.50f, 0.75f, 1.35f, 0.90f, 1.20f, 1.05f, 1.15f, 1.20f, 1.00f, 1f, 1f, 1f, 1.30f, 1.15f, 1.20f)
+            params = listOf(1.75f, 0.65f, 1.65f, 0.80f, 1.35f, 1.20f, 1.25f, 1.25f, 1.00f, 1f, 1f, 1f, 1.40f, 1.10f, 1.20f)
         ),
         DspPreset(
             id = "late_night", title = "Late Night", subtitle = "Dinamika dipadatkan, loudness lembut — aman untuk volume rendah",
-            params = listOf(1.05f, 0.90f, 0.80f, 1.05f, 0.70f, 0.75f, 1.00f, 1.00f, 1.30f, 0.80f, 0.55f, 1.30f, 0.70f, 1.00f, 1.30f)
+            params = listOf(1.15f, 0.90f, 0.80f, 1.10f, 0.50f, 0.60f, 1.00f, 1.10f, 1.30f, 1.40f, 0.60f, 1.70f, 0.60f, 1.20f, 1.25f)
         ),
         DspPreset(
             id = "tube_warmth", title = "Vintage Tube", subtitle = "Karakter tabung klasik: harmoni hangat, low-end tebal, dan high yang halus",
-            params = listOf(1.10f, 1.00f, 0.85f, 1.45f, 0.80f, 1.00f, 0.95f, 1.10f, 1.00f, 1f, 1f, 1.15f, 1.05f, 1.40f, 1.70f)
+            params = listOf(1.20f, 1.05f, 0.70f, 1.65f, 0.80f, 0.90f, 0.95f, 1.15f, 1.00f, 1f, 1f, 1.15f, 1.00f, 1.50f, 1.85f)
         ),
         DspPreset(
             id = "air_shimmer", title = "Crystal Air", subtitle = "Ekstrem high-end detail: kilau instrumen dan separasi ruang yang maksimal",
-            params = listOf(0.95f, 1.00f, 1.80f, 0.80f, 1.50f, 1.10f, 1.15f, 1.40f, 1.00f, 1f, 1f, 1f, 1.15f, 0.90f, 0.75f)
+            params = listOf(0.90f, 1.00f, 2.00f, 0.75f, 1.75f, 1.20f, 1.35f, 1.50f, 1.00f, 1f, 1f, 1f, 1.20f, 0.80f, 0.60f)
         )
     )
 

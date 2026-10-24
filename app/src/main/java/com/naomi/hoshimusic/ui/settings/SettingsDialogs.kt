@@ -301,6 +301,22 @@ internal fun PatchNotesDialog(onDismiss: () -> Unit) {
             LazyColumn {
                 item {
                     PatchVersionSection(
+                        version = "1.4.8",
+                        notes = listOf(
+                            "Native AGC Removal: Gain controller AGC di DspEngine::processFrame() dihapus sepenuhnya — curPreGain kini terkunci di 1.0f. Sebelumnya AGC Bereaksi terhadap loudness sehingga menetralkan karakter tiap preset dan membuat 'semua preset terdengar sama'. Parameter prm[9] tetap dibaca demi kompatibilitas indeks, tetapi tidak lagi memengaruhi gain.",
+                            "Preset Re-Tuning: Seluruh 12 preset bawaan di-tuning ulang berdasarkan pengukuran energi 10-band. Bass Boost naik ke 2.00, Crystal Air ke 1.90, Bright ke 1.70, Vocal Clarity ke 1.60, V-Shaped ke 1.70 — perbedaan antar preset kini jauh lebih audibel.",
+                            "DSP Tuning Constants: File baru hoshi_dsp_tuning.h memusatkan seluruh frekuensi tunable (proteksi subsonik 45/48/62 Hz, shelf 105 Hz & 7 kHz, formant 1.8/3/5 kHz, de-esser 5.5/9.5 kHz, virtual bass 60/80/250 Hz) ke namespace hoshi::tuning agar tuning tidak lagi tersebar sebagai magic number di dalam DSP core.",
+                            "Spatial Audio Fix: setSpatialAudio() kini menurunkan guard early-return ke dalam blok synchronized (memperbaiki race saat dua panggilan bertumpuk) dan menghitung parameter dari snapshot base yang bersih, sehingga toggle tidak lagi menumpuk pengali width/crossfeed secara kumulatif.",
+                            "PCM16 Rounding: PcmFormatConverter.encode16Bit() kini membulatkan (round-half-away-from-zero) alih-alih memotong ke arah nol, menghilangkan bias -1 LSB sistematis dan distorsi asimetris pada tiap sample float-to-PCM.",
+                            "Regression Test: DspContractTest kini punya testPcmEncode16BitRounding untuk mengunci perilaku pembulatan PCM 16-bit.",
+                            "Harness DSP Expansion: DspNativeHarness + run_harness.js menambahkan 3 mode uji baru — Block Size (512/1024/2048/4096 frame terhadap gain & koefisien adaptif), Music Mode (sumber pink-noise dengan pengukuran energi 10-band, delta dB vs reference), dan System Volume Response (0.3/0.5/1.0). Tabel preset harness disinkronkan ke nilai DspPresets terbaru plus preset kontrol ref_nocf, iso_bass, iso_air.",
+                            "Docs & Hygiene: README kini noting bahwa shim matematika harness memakai double precision (valid untuk regresi & perbandingan, bukan klaim bit-identik), serta .gitignore untuk app/src/test/cpp/.cache/ dan app/src/test/cpp/baseline/."
+                        )
+                    )
+                    Spacer(Modifier.height(16.dp))
+                }
+                item {
+                    PatchVersionSection(
                         version = "1.4.7",
                         notes = listOf(
                             "DSP Numerical Stability: -ffast-math dihapus dari flag NDK global. Filter IIR/biquad TptSvf dan DspEngine::processFrame() sensitif terhadap reassociation floating-point dan denormal handling, sehingga fast-math kini hanya diterapkan selektif per-fungsi yang aman.",

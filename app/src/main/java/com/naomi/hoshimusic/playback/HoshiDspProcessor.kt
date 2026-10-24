@@ -485,32 +485,34 @@ class HoshiDspProcessor : BaseAudioProcessor() {
     }
 
     fun setSpatialAudio(enabled: Boolean, preset: Int) {
-        if (desiredConfig.spatialAudioEnabled == enabled &&
-            desiredConfig.spatialAudioPreset == preset
-        ) return
-
         synchronized(desiredConfig) {
+            if (desiredConfig.spatialAudioEnabled == enabled &&
+                desiredConfig.spatialAudioPreset == preset
+            ) return
             desiredConfig.spatialAudioEnabled = enabled
             desiredConfig.spatialAudioPreset = preset
         }
 
-        val widthAdj = when (preset) {
-            1 -> 1.40f
-            2 -> 0.60f
-            else -> 1.00f
+        val baseParams = synchronized(desiredConfig) { desiredConfig.params?.clone() } ?: return
+        val spatialParams = baseParams.clone()
+        if (enabled) {
+            val widthAdj = when (preset) {
+                1 -> 1.40f
+                2 -> 0.60f
+                else -> 1.00f
+            }
+            val crossfeedAdj = when (preset) {
+                1 -> 0.30f
+                2 -> 1.20f
+                else -> 1.00f
+            }
+            spatialParams[DspPresets.IDX_WIDTH] =
+                (baseParams[DspPresets.IDX_WIDTH] * widthAdj).coerceIn(0f, 2f)
+            spatialParams[DspPresets.IDX_CROSSFEED] =
+                (baseParams[DspPresets.IDX_CROSSFEED] * crossfeedAdj).coerceIn(0f, 1.5f)
         }
-        val crossfeedAdj = when (preset) {
-            1 -> 0.30f
-            2 -> 1.20f
-            else -> 1.00f
-        }
-
-        val current = synchronized(desiredConfig) { desiredConfig.params?.clone() } ?: return
-        current[DspPresets.IDX_WIDTH] =
-            (current[DspPresets.IDX_WIDTH] * widthAdj).coerceIn(0f, 2f)
-        current[DspPresets.IDX_CROSSFEED] =
-            (current[DspPresets.IDX_CROSSFEED] * crossfeedAdj).coerceIn(0f, 1.5f)
-        setParams(current)
+        engine.setParams(spatialParams)
+        ensureAdaptiveEnabledForParams(spatialParams)
     }
 
     /** Terapkan konfigurasi PEQ secara atomik (double-buffer di sisi native). */

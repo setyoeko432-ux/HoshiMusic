@@ -78,7 +78,7 @@ class PcmFormatConverter {
 
     /**
      * Salin float stereo dari [directBuffer] ke [output] dengan konversi
-     * kembali ke PCM 16-bit. [output] dibiarkan dalam posisi write.
+     * kembali ke PCM 16-bit memakai rounding (bukan truncation). [output] dibiarkan dalam posisi write.
      */
     fun encode16Bit(direct: ByteBuffer, output: ByteBuffer, frames: Int) {
         direct.flip()
@@ -86,7 +86,9 @@ class PcmFormatConverter {
         var i = 0
         while (i < samples && direct.hasRemaining()) {
             val f = direct.float
-            output.putShort((f.coerceIn(-1.0f, 1.0f) * 32767.0f).toInt().toShort())
+            val scaled = f.coerceIn(-1.0f, 1.0f) * 32767.0f
+            val rounded = if (scaled >= 0f) (scaled + 0.5f).toInt() else (scaled - 0.5f).toInt()
+            output.putShort(rounded.toShort())
             i++
         }
     }

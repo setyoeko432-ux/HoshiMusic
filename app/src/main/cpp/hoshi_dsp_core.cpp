@@ -1,4 +1,5 @@
 #include "hoshi_dsp_core.h"
+#include "hoshi_dsp_tuning.h"
 #include <android/log.h>
 #if defined(__arm__) || defined(__aarch64__)
 #include <arm_neon.h>
@@ -370,6 +371,11 @@ void DspEngine::setupStaticCoefficients() {
 
     exciterHpfL.setHighPass(fs, 6000.0f, 0.707f); // TUNING: Subtle exciter
     exciterHpfR.setHighPass(fs, 6000.0f, 0.707f);
+    exciterLpfL.setLowPass(fs, 13500.0f, 0.707f); // Anti-aliasing LPF
+    exciterLpfR.setLowPass(fs, 13500.0f, 0.707f);
+
+    decorrHpf.setHighPass(fs, 400.0f, 0.5f);
+    decorrLpf.setLowPass(fs, 3200.0f, 0.5f);
 
     // Sub-band bass protector: split LPF 140 Hz (proteksi driver kecil)
     protSplitLpfL.setLowPass(fs, 140.0f, 0.707f);
@@ -402,20 +408,14 @@ void DspEngine::updateAdaptiveCoefficients(float dt) {
     float fs = static_cast<float>(sampleRate);
     if (fs < 8000.0f) return;
 
-    // TUNING: Masking reduction & Vocal clarity focus
-    // [FIX-7] Deklarasi lokal pBass/pVocal/pWarm/pExciter/pPunch/pBody DIHAPUS.
-    //
-    // Semuanya pernah dimuat ke sini lalu TIDAK PERNAH dipakai di fungsi ini --
-    // hanya pAir yang benar-benar dibaca (untuk guardDepth). Nilainya tetap
-    // hidup di prm[] dan dipakai di tempat lain (processFrame untuk
-    // pPunch/pBody, blok telemetry di process() untuk sisanya), jadi ini bukan
-    // parameter mati, hanya variabel lokal yang menyesatkan.
+    const float pWarm = prm[3].load(std::memory_order_relaxed);
     const float pAir = prm[2].load(std::memory_order_relaxed);
 
     const bool clarityOn = btClarity.load(std::memory_order_relaxed);
 
     mMudCut.setPeaking(fs, 280.0f, curMudCutDb, 1.0f);
     mLowMidGapCut.setPeaking(fs, 380.0f, curLowMidGapCutDb, 1.2f);
+    mWarmBody.setPeaking(fs, 250.0f, curWarmBoostDb, 0.8f);
 
     if (btClarityDirty.load(std::memory_order_acquire)) {
         mBoxinessCut.setPeaking(fs, 450.0f, clarityOn ? -2.8f : -1.0f, 1.2f);
@@ -666,24 +666,17 @@ void DspEngine::processFrame(
     if (!std::isfinite(medRms)) medRms = 0.1f;
     if (!std::isfinite(slowRms)) slowRms = 0.1f;
 
-    float targetPreGain = 1.0f;
-    if (slowRms > 0.001f) {
-        targetPreGain = 0.18f / slowRms;
-        targetPreGain = fmaxf(0.5f, fminf(targetPreGain, 1.5f * fmaxf(pAgc, 0.25f)));
-        const float upKnee = 0.045f * fmaxf(0.0f, fminf(pLoudness, 2.0f));
-        if (medRms < upKnee && medRms > 0.0015f) {
-            const float upGain = fminf(2.0f, upKnee / medRms);
-            targetPreGain *= (0.6f + 0.4f * upGain);
-            targetPreGain = fminf(targetPreGain, 2.2f * fmaxf(pAgc, 0.25f));
-        }
-    }
+    if (!std::isfinite(medRms)) medRms = 0.1f;
+    if (!std::isfinite(slowRms)) slowRms = 0.1f;
 
-    if (targetPreGain > curPreGain) {
-        curPreGain = curPreGain * 0.999996f + targetPreGain * 0.000004f;
+    if (pAgc > 0.01f) {
+        float agcError = 0.18f / fmaxf(slowRms, 0.03f);
+        float targetPreGain = 1.0f + (agcError - 1.0f) * 0.25f * pAgc;
+        targetPreGain = fmaxf(0.65f, fminf(1.5f, targetPreGain));
+        curPreGain += (targetPreGain - curPreGain) * 0.0001f;
     } else {
-        curPreGain = curPreGain * 0.9995f + targetPreGain * 0.0005f;
+        curPreGain = 1.0f;
     }
-
     l *= curPreGain;
     r *= curPreGain;
 
@@ -742,17 +735,18 @@ void DspEngine::processFrame(
     float deltaM = fmaxf(0.0f, transFastM - transSlowM);
     float gateM = fminf(1.0f, absM * 25.0f);
     m += m * deltaM * (0.12f * pPunch) * gateM;
-    // [DEFECT 5] IDX_TRANSIENT (prm[5]) sekarang benar-benar dibaca: emphasise
-    // tambahan khusus kanal mid, terpisah dari pPunch yang bekerja di M dan S.
-    // Hanya aktif di atas 1.0f supaya preset `reference` (semua 1.0f) tetap
-    // identik bit-per-bit dengan baseline mesin — perubahan-parameter ini
-    // tidak boleh menggeser karakter preset bawaan.
+
     if (pTransient > 1.0f) {
-        m += m * deltaM * (0.10f * (pTransient - 1.0f)) * gateM;
+        m += m * deltaM * (0.15f * (pTransient - 1.0f)) * gateM;
+    } else if (pTransient < 1.0f) {
+        m -= m * deltaM * (0.15f * (1.0f - pTransient)) * gateM;
     }
     if (pBody > 1.0f) {
         const float bodyAddM = ((m >= 0.0f) ? transSlowM : -transSlowM) * (0.28f * (pBody - 1.0f)) * fminf(1.0f, transSlowM * 20.0f);
         m += bodyAddM;
+    } else if (pBody < 1.0f) {
+        const float bodySubM = ((m >= 0.0f) ? transSlowM : -transSlowM) * (0.28f * (1.0f - pBody)) * fminf(1.0f, transSlowM * 20.0f);
+        m -= bodySubM;
     }
     m = fmaxf(-2.0f, fminf(m, 2.0f));
 
@@ -763,9 +757,18 @@ void DspEngine::processFrame(
     float deltaS = fmaxf(0.0f, transFastS - transSlowS);
     float gateS = fminf(1.0f, absS * 25.0f);
     s += s * deltaS * (0.14f * pPunch) * gateS;
+
+    if (pTransient > 1.0f) {
+        s += s * deltaS * (0.15f * (pTransient - 1.0f)) * gateS;
+    } else if (pTransient < 1.0f) {
+        s -= s * deltaS * (0.15f * (1.0f - pTransient)) * gateS;
+    }
     if (pBody > 1.0f) {
         const float bodyAddS = ((s >= 0.0f) ? transSlowS : -transSlowS) * (0.30f * (pBody - 1.0f)) * fminf(1.0f, transSlowS * 20.0f);
         s += bodyAddS;
+    } else if (pBody < 1.0f) {
+        const float bodySubS = ((s >= 0.0f) ? transSlowS : -transSlowS) * (0.30f * (1.0f - pBody)) * fminf(1.0f, transSlowS * 20.0f);
+        s -= bodySubS;
     }
     s = fmaxf(-2.0f, fminf(s, 2.0f));
 
@@ -782,6 +785,7 @@ void DspEngine::processFrame(
     m = mSubCut.process(m);
     m = mMudCut.process(m);
     m = mLowMidGapCut.process(m);
+    m = mWarmBody.process(m);
     m = mBoxinessCut.process(m);
     m = mVocalFormant.process(m);
     m = mVocalPresence.process(m);
@@ -837,6 +841,11 @@ void DspEngine::processFrame(
     s = sDecorrelator1.process(s);
     s = sDecorrelator2.process(s);
 
+    if (pWidth > 1.0f && std::abs(s) < 0.001f) {
+        float midBand = decorrLpf.process(decorrHpf.process(m));
+        float decorrS = (sDecorrelator1.process(midBand) + sDecorrelator2.process(midBand)) * 0.06f * (pWidth - 1.0f);
+        s += decorrS;
+    }
     s *= pWidth;
 
     l = m + s;
@@ -881,8 +890,12 @@ void DspEngine::processFrame(
     const float exGate = 0.35f + 0.65f * fminf(1.0f, deltaM * 55.0f);
     float excL = exciterHpfL.process(l);
     float excR = exciterHpfR.process(r);
-    if (excL > 0.0f) l += ((excL + 0.3f * excL * excL) / (1.0f + 0.2f * std::abs(excL))) * curExciterAmount * exGate;
-    if (excR > 0.0f) r += ((excR + 0.3f * excR * excR) / (1.0f + 0.2f * std::abs(excR))) * curExciterAmount * exGate;
+    float excL_harm = (excL + 0.35f * excL * std::abs(excL)) / (1.0f + 0.25f * std::abs(excL));
+    float excR_harm = (excR + 0.35f * excR * std::abs(excR)) / (1.0f + 0.25f * std::abs(excR));
+    excL_harm = exciterLpfL.process(excL_harm);
+    excR_harm = exciterLpfR.process(excR_harm);
+    l += excL_harm * curExciterAmount * exGate * 0.45f;
+    r += excR_harm * curExciterAmount * exGate * 0.45f;
 
     dcOffsetL = dcOffsetL * 0.9995f + l * 0.0005f + 1e-25f;
     dcOffsetR = dcOffsetR * 0.9995f + r * 0.0005f + 1e-25f;
@@ -1059,106 +1072,118 @@ void DspEngine::process(float* buffer, int numSamples) {
             fr = fr * (1.0f - curPeqWet) + peqR_out * curPeqWet;
         }
 
+        if (fl > 0.95f) {
+            fl = 0.95f + 0.05f * tanhApprox((fl - 0.95f) / 0.05f);
+        } else if (fl < -0.95f) {
+            fl = -0.95f + 0.05f * tanhApprox((fl + 0.95f) / 0.05f);
+        }
+
+        if (fr > 0.95f) {
+            fr = 0.95f + 0.05f * tanhApprox((fr - 0.95f) / 0.05f);
+        } else if (fr < -0.95f) {
+            fr = -0.95f + 0.05f * tanhApprox((fr + 0.95f) / 0.05f);
+        }
+
         buffer[i * 2] = fmaxf(-1.0f, fminf(1.0f, fl));
         buffer[i * 2 + 1] = fmaxf(-1.0f, fminf(1.0f, fr));
     }
 
     frameCounter.fetch_add(framesProcessed, std::memory_order_relaxed);
 
-    samplesSinceLastUpdate += numSamples;
-    if (samplesSinceLastUpdate >= 1024) {
-        float dt_telemetry = static_cast<float>(samplesSinceLastUpdate) / static_cast<float>(sampleRate);
-        samplesSinceLastUpdate = 0;
+    float dt_block = static_cast<float>(numSamples) / static_cast<float>(sampleRate);
+    float alpha_adapt = 1.0f - expf(-dt_block / 0.035f);
+    float inv_alpha = 1.0f - alpha_adapt;
 
-        float totalPwr = envLow + envMid + envHigh + 1e-9f;
-        float bassRatio = envLow / totalPwr;
-        float midRatio = envMid / totalPwr;
-        float highRatio = envHigh / totalPwr;
+    float totalPwr = envLow + envMid + envHigh + 1e-9f;
+    float bassRatio = envLow / totalPwr;
+    float midRatio = envMid / totalPwr;
+    float highRatio = envHigh / totalPwr;
 
-        const float pWarm_local      = prm[3].load(std::memory_order_relaxed);
-        const float warmDiv = 1.0f / fmaxf(pWarm_local, 0.25f);
-        const bool clarityOn = btClarity.load(std::memory_order_relaxed);
-        const float pLoudness_local  = prm[11].load(std::memory_order_relaxed);
+    const float pWarm_local      = prm[3].load(std::memory_order_relaxed);
+    const float warmDiv = 1.0f / fmaxf(pWarm_local, 0.25f);
+    const bool clarityOn = btClarity.load(std::memory_order_relaxed);
+    const float pLoudness_local  = prm[11].load(std::memory_order_relaxed);
 
-        float targetMudCut = ((bassRatio > 0.40f) ? -2.0f : -1.2f) * warmDiv;
-        float targetLowMidGapCut = ((bassRatio > 0.40f) ? -1.5f : -0.8f) * warmDiv;
-        float targetVocalBoost = ((midRatio > 0.35f) ? 2.2f : 1.6f) * pVocal;
-        float targetConsonant = ((highRatio < 0.20f) ? 1.0f : 0.4f) * pVocal;
-        float targetAirBoost = ((highRatio < 0.15f) ? 1.8f : 0.8f) * pAir;
-        float targetSideBoost = ((midRatio > 0.35f) ? 1.4f : 0.6f) * pWidth;
-        float targetExciter = ((highRatio < 0.20f) ? 0.03f : 0.01f) * pExciter;
+    float targetMudCut = ((bassRatio > 0.40f) ? -2.0f : -1.2f) * warmDiv;
+    float targetLowMidGapCut = ((bassRatio > 0.40f) ? -1.5f : -0.8f) * warmDiv;
+    float targetWarmBoost = (pWarm_local > 1.0f) ? (pWarm_local - 1.0f) * 4.0f : (pWarm_local - 1.0f) * 3.0f;
+    float targetVocalBoost = ((midRatio > 0.35f) ? 2.2f : 1.6f) * pVocal;
+    float targetConsonant = ((highRatio < 0.20f) ? 1.0f : 0.4f) * pVocal;
+    float targetAirBoost = ((highRatio < 0.15f) ? 1.8f : 0.8f) * pAir;
+    float targetSideBoost = ((midRatio > 0.35f) ? 1.4f : 0.6f) * pWidth;
+    float targetExciter = ((highRatio < 0.20f) ? 0.03f : 0.01f) * pExciter;
 
-        float bassScale = fmaxf(0.15f, 1.0f - (bassRatio / 0.45f));
-        float targetVirtualBass = fmaxf(0.0f, 0.30f - bassRatio) * 0.15f;
-        if (bassRatio > 0.35f) { targetVirtualBass = (bassRatio - 0.35f) * 0.02f; }
-        targetVirtualBass = (targetVirtualBass * 0.3f + 0.05f * bassScale) * pBass;
+    float bassScale = fmaxf(0.15f, 1.0f - (bassRatio / 0.45f));
+    float targetVirtualBass = fmaxf(0.0f, 0.30f - bassRatio) * 0.15f;
+    if (bassRatio > 0.35f) { targetVirtualBass = (bassRatio - 0.35f) * 0.02f; }
+    targetVirtualBass = (targetVirtualBass * 0.3f + 0.05f * bassScale) * pBass;
 
-        float volumeFactor = fmaxf(0.0f, 0.5f - systemVolume.load(std::memory_order_relaxed)) * 2.0f * pLoudness_local;
-        float fletcherBassBoost = volumeFactor * 0.04f;
-        targetVirtualBass = fminf(0.06f, targetVirtualBass + fletcherBassBoost);
-        if (clarityOn) targetVirtualBass = fminf(targetVirtualBass, 0.02f);
-        float fletcherAirBoost = volumeFactor * 1.5f;
-        targetAirBoost += fletcherAirBoost;
-        curFormantBoostDb = 0.8f + (volumeFactor * 0.6f);
+    float volumeFactor = fmaxf(0.0f, 0.5f - systemVolume.load(std::memory_order_relaxed)) * 2.0f * pLoudness_local;
+    float fletcherBassBoost = volumeFactor * 0.04f;
+    targetVirtualBass = fminf(0.06f, targetVirtualBass + fletcherBassBoost);
+    if (clarityOn) targetVirtualBass = fminf(targetVirtualBass, 0.02f);
+    float fletcherAirBoost = volumeFactor * 1.5f;
+    targetAirBoost += fletcherAirBoost;
+    curFormantBoostDb = 0.8f + (volumeFactor * 0.6f);
 
-        curMudCutDb = curMudCutDb * 0.95f + targetMudCut * 0.05f;
-        curLowMidGapCutDb = curLowMidGapCutDb * 0.95f + targetLowMidGapCut * 0.05f;
-        curVocalBoostDb = curVocalBoostDb * 0.95f + targetVocalBoost * 0.05f;
-        curConsonantBoostDb = curConsonantBoostDb * 0.95f + targetConsonant * 0.05f;
-        curSideBoostDb = curSideBoostDb * 0.95f + targetSideBoost * 0.05f;
-        curAirBoostDb = curAirBoostDb * 0.95f + targetAirBoost * 0.05f;
-        curExciterAmount = curExciterAmount * 0.95f + targetExciter * 0.05f;
-        curVirtualBassAmount = curVirtualBassAmount * 0.95f + targetVirtualBass * 0.05f;
+    curMudCutDb = curMudCutDb * inv_alpha + targetMudCut * alpha_adapt;
+    curLowMidGapCutDb = curLowMidGapCutDb * inv_alpha + targetLowMidGapCut * alpha_adapt;
+    curWarmBoostDb = curWarmBoostDb * inv_alpha + targetWarmBoost * alpha_adapt;
+    curVocalBoostDb = curVocalBoostDb * inv_alpha + targetVocalBoost * alpha_adapt;
+    curConsonantBoostDb = curConsonantBoostDb * inv_alpha + targetConsonant * alpha_adapt;
+    curSideBoostDb = curSideBoostDb * inv_alpha + targetSideBoost * alpha_adapt;
+    curAirBoostDb = curAirBoostDb * inv_alpha + targetAirBoost * alpha_adapt;
+    curExciterAmount = curExciterAmount * inv_alpha + targetExciter * alpha_adapt;
+    curVirtualBassAmount = curVirtualBassAmount * inv_alpha + targetVirtualBass * alpha_adapt;
 
-        int bestE = 0; if (essEnv[1] > essEnv[bestE]) bestE = 1; if (essEnv[2] > essEnv[bestE]) bestE = 2;
-        static const float essFc[3] = {5800.0f, 7500.0f, 9200.0f};
-        const float tgtFc = (essEnv[bestE] > 0.02f) ? essFc[bestE] : 7500.0f;
-        curNotchFc = curNotchFc * 0.95f + tgtFc * 0.05f;
+    int bestE = 0; if (essEnv[1] > essEnv[bestE]) bestE = 1; if (essEnv[2] > essEnv[bestE]) bestE = 2;
+    static const float essFc[3] = {5800.0f, 7500.0f, 9200.0f};
+    const float tgtFc = (essEnv[bestE] > 0.02f) ? essFc[bestE] : 7500.0f;
+    curNotchFc = curNotchFc * inv_alpha + tgtFc * alpha_adapt;
 
         // updateDynamicCoefficients is gone, we updated curFooDb directly above.
 
-        DspTelemetryData snap;
-        snap.bassRatio = bassRatio;
-        snap.midRatio = midRatio;
-        snap.highRatio = highRatio;
-        snap.curMudCutDb = curMudCutDb;
-        snap.curLowMidGapCutDb = curLowMidGapCutDb;
-        snap.curFormantBoostDb = curFormantBoostDb;
-        snap.curVocalBoostDb = curVocalBoostDb;
-        snap.curConsonantBoostDb = curConsonantBoostDb;
-        snap.curAirBoostDb = curAirBoostDb;
-        snap.curSideBoostDb = curSideBoostDb;
-        snap.curDeEsserGainDb = curDeEsserGainDb;
-        snap.curExciterAmount = curExciterAmount;
-        snap.curVirtualBassAmount = curVirtualBassAmount;
-        snap.curTransientDelta = transFastM - transSlowM;
-        snap.peakEnvelope = envelope;
-        snap.limiterGainReductionDb = (envelope > limiterCeiling) ? 20.0f * std::log10(limiterCeiling / envelope) : 0.0f;
-        snap.totalFramesProcessed = frameCounter.load(std::memory_order_relaxed);
-        snap.appliedPeqRevision = lastProcessedRevision;
-        snap.sampleRate = sampleRate;
-        snap.vocalEnergy = vocalEnv;
-        snap.nativeInitialized = true;
+        DspTelemetryData tSnap;
+        tSnap.bassRatio = bassRatio;
+        tSnap.midRatio = midRatio;
+        tSnap.highRatio = highRatio;
+        tSnap.curMudCutDb = curMudCutDb;
+        tSnap.curLowMidGapCutDb = curLowMidGapCutDb;
+        tSnap.curFormantBoostDb = curFormantBoostDb;
+        tSnap.curVocalBoostDb = curVocalBoostDb;
+        tSnap.curConsonantBoostDb = curConsonantBoostDb;
+        tSnap.curAirBoostDb = curAirBoostDb;
+        tSnap.curSideBoostDb = curSideBoostDb;
+        tSnap.curDeEsserGainDb = curDeEsserGainDb;
+        tSnap.curExciterAmount = curExciterAmount;
+        tSnap.curVirtualBassAmount = curVirtualBassAmount;
+        tSnap.curTransientDelta = transFastM - transSlowM;
+        tSnap.peakEnvelope = envelope;
+        tSnap.limiterGainReductionDb = (envelope > limiterCeiling) ? 20.0f * std::log10(limiterCeiling / envelope) : 0.0f;
+        tSnap.totalFramesProcessed = frameCounter.load(std::memory_order_relaxed);
+        tSnap.appliedPeqRevision = lastProcessedRevision;
+        tSnap.sampleRate = sampleRate;
+        tSnap.vocalEnergy = vocalEnv;
+        tSnap.nativeInitialized = true;
 
         // [TRACE] Status gate wet yang sebenarnya — ini yang membuktikan
         // apakah processFrame() benar-benar jalan dan wet-nya sudah matured.
-        snap.adspWet = curAdspWet;
-        snap.adspEnabled = adaptiveDspEnabled.load(std::memory_order_relaxed);
-        snap.agcPreGain = curPreGain;
-        snap.slowRms = slowRms;
-        snap.medRms = medRms;
+        tSnap.adspWet = curAdspWet;
+        tSnap.adspEnabled = adaptiveDspEnabled.load(std::memory_order_relaxed);
+        tSnap.agcPreGain = curPreGain;
+        tSnap.slowRms = slowRms;
+        tSnap.medRms = medRms;
 
-        if (highRatio > 0.32f) std::strcpy(snap.dominantBand, "NATURAL BRIGHT");
-        else if (midRatio > 0.42f) std::strcpy(snap.dominantBand, "CLEAR VOCAL");
-        else std::strcpy(snap.dominantBand, "BALANCED STAGE");
+        if (highRatio > 0.32f) std::strcpy(tSnap.dominantBand, "NATURAL BRIGHT");
+        else if (midRatio > 0.42f) std::strcpy(tSnap.dominantBand, "CLEAR VOCAL");
+        else std::strcpy(tSnap.dominantBand, "BALANCED STAGE");
 
         uint32_t s = telemetrySeq.load(std::memory_order_relaxed);
         telemetrySeq.store(s + 1, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_release);
-        telemetryData = snap;
+        telemetryData = tSnap;
         std::atomic_thread_fence(std::memory_order_release);
         telemetrySeq.store(s + 2, std::memory_order_relaxed);
-    }
 }
 
 
@@ -1169,7 +1194,7 @@ void DspEngine::flush() {
     analyzeLowL.reset(); analyzeLowR.reset();
     analyzeMidHpfL.reset(); analyzeMidHpfR.reset(); analyzeMidLpfL.reset(); analyzeMidLpfR.reset();
     analyzeHighL.reset(); analyzeHighR.reset();
-    mSubCut.reset(); mMudCut.reset(); mLowMidGapCut.reset(); mBoxinessCut.reset();
+    mSubCut.reset(); mMudCut.reset(); mLowMidGapCut.reset(); mWarmBody.reset();
     mVocalFormant.reset(); mVocalPresence.reset(); mConsonantPluck.reset(); mUltraAirShelf.reset();
     mHarshGuard.reset();
     sLowCut.reset(); sPresence.reset(); sAirShelf.reset();
@@ -1178,7 +1203,11 @@ void DspEngine::flush() {
     deEsserHpf.reset(); deEsserLpf.reset(); deEsserNotch.reset();
     for (int e = 0; e < 3; ++e) { essBand[e].reset(); essEnv[e] = 0.0f; }
     curNotchFc = 7500.0f;
+    curWarmBoostDb = 0.0f;
+    curAdspWet = 0.0f;
     exciterHpfL.reset(); exciterHpfR.reset();
+    exciterLpfL.reset(); exciterLpfR.reset();
+    decorrHpf.reset(); decorrLpf.reset();
     crossfeedLpfL.reset(); crossfeedLpfR.reset();
     protSplitLpfL.reset(); protSplitLpfR.reset();
     for (int b = 0; b < PEQ_SLOTS; ++b) {
