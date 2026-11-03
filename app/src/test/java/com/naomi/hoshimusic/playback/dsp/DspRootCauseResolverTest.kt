@@ -13,7 +13,7 @@ import org.junit.Test
  *   - Ensures stale preview overrides from a previous preset DO NOT override new preset selections.
  *   - Ensures custom presets override builtin presets when matching ID.
  *   - Ensures ambience modifier operations do not mutate source arrays.
- *   - Ensures all 14 builtin presets produce distinct parameter profiles.
+ *   - Ensures all 18 builtin presets produce distinct parameter profiles.
  */
 class DspRootCauseResolverTest {
 
@@ -117,7 +117,7 @@ class DspRootCauseResolverTest {
     @Test
     fun testH_AllBuiltinPresetsProduceDistinctParameterArrays() {
         val builtins = DspPresets.BUILTINS
-        assertEquals("Must have 14 builtin presets", 14, builtins.size)
+        assertEquals("Must have 18 builtin presets", 18, builtins.size)
 
         for (i in builtins.indices) {
             for (j in i + 1 until builtins.size) {

@@ -27,6 +27,9 @@ data class CustomDspPreset(
 )
 
 object DspPresets {
+    const val PEQ_MAX_BANDS = 16
+    const val PEQ_MIN_FREQUENCY_HZ = 20f
+    const val PEQ_MAX_FREQUENCY_HZ = 16_000f
     const val PARAM_COUNT = 15
     const val REFERENCE_ID = "reference"
 
@@ -47,6 +50,18 @@ object DspPresets {
     const val IDX_BODY = 13      // True transient shaper: sustain (Body)
     const val IDX_SATURATE = 14  // Saturasi band-split (tape glue low-band + waveshaper global)
 
+    // Referensi tuning publik:
+    // - https://equaliser.knage.net/docs/eq-presets-guide.html
+    // - https://deskbroadcast.com/learn/parametric-eq
+    // - https://www.mdpi.com/2076-3417/6/5/129
+    // - https://vayce.app/tools/audio-graphic-equalizer/
+    // Titik 16 kHz mengikuti octave-band audio yang umum; batas nyata juga
+    // tetap mengikuti Nyquist saat koefisien native dihitung.
+    // Prinsip yang dipakai: low-end 20–120 Hz untuk bobot/punch, 200–500 Hz
+    // untuk mud/boxiness, 2–5 kHz untuk presence, 5–8 kHz untuk sibilance,
+    // dan 10 kHz+ untuk air. Boost tonal dijaga moderat; karakter tambahan
+    // datang dari transient, width, saturasi, dan loudness yang berbeda.
+
     /** Perilaku default yang sudah di-tuning: semua skala 1.0 */
     val DEFAULT_PARAMS: List<Float> = List(PARAM_COUNT) { 1f }
 
@@ -62,7 +77,7 @@ object DspPresets {
         ),
         DspPreset(
             id = "analog", title = "Analog Warmth", subtitle = "Pita analog virtual: glue hangat, punch terjaga — showcase saturasi",
-            params = listOf(1.25f, 0.95f, 0.65f, 1.55f, 0.50f, 0.85f, 0.95f, 1.00f, 1.10f, 1f, 1f, 1f, 0.95f, 1.35f, 1.70f)
+            params = listOf(1.20f, 0.95f, 0.60f, 1.50f, 0.45f, 0.85f, 0.95f, 1.00f, 1.00f, 1f, 1f, 1f, 0.95f, 1.40f, 1.90f)
         ),
         DspPreset(
             id = "flat", title = "Flat",
@@ -71,7 +86,7 @@ object DspPresets {
         ),
         DspPreset(
             id = "warm", title = "Warm", subtitle = "Body 200–500 Hz naik, treble rileks — analog & nyaman",
-            params = listOf(1.30f, 0.90f, 0.65f, 1.60f, 0.40f, 0.85f, 1.00f, 1.00f, 1.10f, 1f, 1f, 1f, 0.85f, 1.35f, 1.45f)
+            params = listOf(1.30f, 0.90f, 0.65f, 1.60f, 0.40f, 0.85f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1f, 0.85f, 1.40f, 1.15f)
         ),
         DspPreset(
             id = "bright", title = "Bright", subtitle = "Kilau udara & detail dinaikkan — terbuka namun terkontrol",
@@ -79,7 +94,7 @@ object DspPresets {
         ),
         DspPreset(
             id = "soft", title = "Soft", subtitle = "Transien & treble diredam, AGC lembut — halus di telinga",
-            params = listOf(0.95f, 0.80f, 0.50f, 1.15f, 0.30f, 0.65f, 1.00f, 1.20f, 1.20f, 1.20f, 0.80f, 1f, 0.65f, 1.15f, 0.80f)
+            params = listOf(0.95f, 0.80f, 0.50f, 1.15f, 0.30f, 0.65f, 1.00f, 1.20f, 1.00f, 1.20f, 0.80f, 1f, 0.65f, 1.15f, 0.80f)
         ),
         DspPreset(
             id = "bass_boost", title = "Bass Boost", subtitle = "Low shelf ~105 Hz didorong kuat — dentum dalam & tebal",
@@ -99,7 +114,7 @@ object DspPresets {
         ),
         DspPreset(
             id = "late_night", title = "Late Night", subtitle = "Dinamika dipadatkan, loudness lembut — aman untuk volume rendah",
-            params = listOf(1.15f, 0.90f, 0.80f, 1.10f, 0.50f, 0.60f, 1.00f, 1.10f, 1.30f, 1.40f, 0.60f, 1.70f, 0.60f, 1.20f, 1.25f)
+            params = listOf(1.15f, 0.90f, 0.80f, 1.10f, 0.50f, 0.60f, 1.00f, 1.10f, 1.00f, 1.40f, 0.60f, 1.70f, 0.60f, 1.20f, 1.25f)
         ),
         DspPreset(
             id = "tube_warmth", title = "Vintage Tube", subtitle = "Karakter tabung klasik: harmoni hangat, low-end tebal, dan high yang halus",
@@ -107,7 +122,27 @@ object DspPresets {
         ),
         DspPreset(
             id = "air_shimmer", title = "Crystal Air", subtitle = "Ekstrem high-end detail: kilau instrumen dan separasi ruang yang maksimal",
-            params = listOf(0.90f, 1.00f, 2.00f, 0.75f, 1.75f, 1.20f, 1.35f, 1.50f, 1.00f, 1f, 1f, 1f, 1.20f, 0.80f, 0.60f)
+            params = listOf(0.90f, 1.00f, 2.00f, 0.70f, 1.90f, 1.20f, 1.45f, 1.55f, 1.00f, 1f, 1f, 1f, 1.20f, 0.80f, 0.55f)
+        ),
+        DspPreset(
+            id = "podcast_voice", title = "Podcast Voice",
+            subtitle = "Speech-first: rumble dan mud dipangkas, presence vokal maju, sibilance dijaga",
+            params = listOf(0.75f, 1.55f, 1.00f, 0.70f, 0.55f, 0.80f, 0.90f, 1.45f, 0.80f, 1.10f, 1.00f, 1.00f, 0.80f, 0.85f, 0.75f)
+        ),
+        DspPreset(
+            id = "acoustic", title = "Acoustic",
+            subtitle = "Natural dan organik: warmth ringan, artikulasi gitar/piano, air yang halus",
+            params = listOf(1.10f, 1.15f, 1.25f, 1.15f, 1.05f, 1.10f, 1.15f, 1.05f, 0.90f, 1.00f, 1.00f, 1.05f, 1.05f, 1.05f, 0.85f)
+        ),
+        DspPreset(
+            id = "cinematic", title = "Cinematic",
+            subtitle = "Skala besar: low-end dalam, panggung lebar, body dan ambience tetap terkendali",
+            params = listOf(1.40f, 0.95f, 1.20f, 1.20f, 0.95f, 1.05f, 1.40f, 1.00f, 1.00f, 0.95f, 1.05f, 1.20f, 1.10f, 1.20f, 1.10f)
+        ),
+        DspPreset(
+            id = "lofi", title = "Lo-Fi Tape",
+            subtitle = "Tekstur santai: treble disaring, mid-body hangat, transien lembut, saturasi pita terasa",
+            params = listOf(1.20f, 0.80f, 0.55f, 1.40f, 0.35f, 0.70f, 0.85f, 1.00f, 1.00f, 1.05f, 0.90f, 1.00f, 0.75f, 1.30f, 1.50f)
         )
     )
 
@@ -124,11 +159,12 @@ object DspPresets {
      * Parser AutoEq: dukung baris gaya EqualizerAPO
      *   `Filter 1: ON PK Fc 55 Hz Gain 2.5 dB Q 1.000`
      * (PK→peaking, LS/LSC→low shelf, HS/HSC→high shelf; toleran kapital/spasi ekstra)
-     * DAN fallback baris tripel `Fc,Gain,Q`. Maksimal 10 band.
+      * DAN fallback baris tripel `Fc,Gain,Q`. Maksimal 16 band, frekuensi
+      * dibatasi pada 20 Hz–16 kHz agar konsisten dengan mesin native.
      * Mendukung pembacaan `Preamp: -X.X dB`.
      */
     fun parseAutoEq(text: String): Pair<List<PeqBand>, Float> {
-        val bands = ArrayList<PeqBand>(10)
+        val bands = ArrayList<PeqBand>(PEQ_MAX_BANDS)
         var preamp = 0f
         val filterLine = Regex(
             pattern = "(?i)^\\s*Filter\\s*\\d+.*?(PK|LS|LSC|HS|HSC).*?Fc\\s*([0-9]+(?:\\.[0-9]+)?).*?Gain\\s*(-?[0-9]+(?:\\.[0-9]+)?).*?Q\\s*([0-9]+(?:\\.[0-9]+)?)"
@@ -145,7 +181,7 @@ object DspPresets {
                 return@forEach
             }
 
-            if (bands.size >= 10) return@forEach
+            if (bands.size >= PEQ_MAX_BANDS) return@forEach
             val m = filterLine.find(line)
             if (m != null) {
                 val type = when (m.groupValues[1].uppercase(Locale.US)) {
@@ -153,7 +189,9 @@ object DspPresets {
                     "HS", "HSC" -> 2
                     else -> 0
                 }
-                bands += PeqBand(type, m.groupValues[2].toFloatOrNull() ?: return@forEach, m.groupValues[3].toFloatOrNull() ?: return@forEach, m.groupValues[4].toFloatOrNull() ?: 0.707f)
+                val fc = (m.groupValues[2].toFloatOrNull() ?: return@forEach)
+                    .coerceIn(PEQ_MIN_FREQUENCY_HZ, PEQ_MAX_FREQUENCY_HZ)
+                bands += PeqBand(type, fc, m.groupValues[3].toFloatOrNull() ?: return@forEach, m.groupValues[4].toFloatOrNull() ?: 0.707f)
                 return@forEach
             }
             // Fallback: tripel `Fc,Gain,Q` → peaking
@@ -162,9 +200,11 @@ object DspPresets {
                 val fc = t.groupValues[1].toFloatOrNull()
                 val gain = t.groupValues[2].toFloatOrNull()
                 val q = t.groupValues[3].toFloatOrNull()
-                if (fc != null && gain != null && q != null && fc > 0f) bands += PeqBand(0, fc, gain, q)
+                if (fc != null && gain != null && q != null && fc > 0f) {
+                    bands += PeqBand(0, fc.coerceIn(PEQ_MIN_FREQUENCY_HZ, PEQ_MAX_FREQUENCY_HZ), gain, q)
+                }
             }
         }
-        return Pair(bands.take(10), preamp)
+        return Pair(bands.take(PEQ_MAX_BANDS), preamp)
     }
 }

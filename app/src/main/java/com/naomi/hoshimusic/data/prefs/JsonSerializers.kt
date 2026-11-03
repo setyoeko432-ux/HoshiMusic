@@ -5,6 +5,7 @@ import com.naomi.hoshimusic.data.PeqBand
 import com.naomi.hoshimusic.data.PeqProfile
 import com.naomi.hoshimusic.data.SavedQueue
 import com.naomi.hoshimusic.playback.dsp.CustomDspPreset
+import com.naomi.hoshimusic.playback.dsp.DspPresets
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -59,8 +60,16 @@ internal object JsonSerializers {
                 item.optString("name", "Profil"),
                 List(bands.length()) { b ->
                     val band = bands.getJSONObject(b)
-                    PeqBand(band.optInt("type", 0), band.optDouble("fc", 1000.0).toFloat(), band.optDouble("gain", 0.0).toFloat(), band.optDouble("q", 0.707).toFloat())
-                }.take(10),
+                    PeqBand(
+                        band.optInt("type", 0),
+                        band.optDouble("fc", 1000.0).toFloat().coerceIn(
+                            DspPresets.PEQ_MIN_FREQUENCY_HZ,
+                            DspPresets.PEQ_MAX_FREQUENCY_HZ
+                        ),
+                        band.optDouble("gain", 0.0).toFloat(),
+                        band.optDouble("q", 0.707).toFloat()
+                    )
+                }.take(DspPresets.PEQ_MAX_BANDS),
                 item.optDouble("preamp", 0.0).toFloat()
             )
         }

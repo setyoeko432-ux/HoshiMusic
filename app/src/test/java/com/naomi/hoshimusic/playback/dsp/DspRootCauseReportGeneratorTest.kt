@@ -185,14 +185,15 @@ class DspRootCauseReportGeneratorTest {
         // ====================================================================
         val limiterCsv = StringBuilder()
             .append("InputPeakDbFS,LimiterParam,LimiterCeilingDbFS,TruePeakDbFS,GainReductionDb,ClippingCount,VerificationStatus\n")
-        val ceilingDb = -0.82
+        val ceilingDb = 20.0 * Math.log10(0.91 + 0.04 * 1.0)
+        val ceilingStr = String.format(java.util.Locale.US, "%.2f", ceilingDb)
         val testPeaks = listOf(-6.0, -1.0, 3.0, 6.0)
         for (peakDb in testPeaks) {
             val ceiling = ceilingDb
             val truePeak = if (peakDb < ceiling) peakDb else ceiling
             val gainReduction = if (peakDb > ceiling) ceiling - peakDb else 0.0
             val clips = if (peakDb > ceiling) 0 else 0
-            limiterCsv.append("$peakDb,pLimiter=1.0,$ceiling,$truePeak,$gainReduction,$clips,NATIVE_PCM_VERIFIED\n")
+            limiterCsv.append("$peakDb,pLimiter=1.0,$ceilingStr,${String.format(java.util.Locale.US, "%.2f", truePeak)},${String.format(java.util.Locale.US, "%.2f", gainReduction)},$clips,ILLUSTRATIVE_NOT_MEASURED\n")
         }
         limiterCsv.append("+3.0,pLimiter=0.6,-1.94,-1.94,-4.94,0,NATIVE_PCM_VERIFIED\n")
         File(reportDir, "limiter_functional_validation.csv").writeText(limiterCsv.toString())
@@ -291,20 +292,20 @@ class DspRootCauseReportGeneratorTest {
             "Transient shaper operates bidirectionally for values < 1.0 (softening) and > 1.0 (emphasis) (NATIVE_PCM_VERIFIED).",
             "Adaptive coefficient convergence is invariant to block sizes (512, 1024, 2048, 4096) (NATIVE_PCM_VERIFIED).",
             "Flat vs Reference RMS delta (+5.56 dB) is caused by binaural crossfeed attenuation on Reference (pCrossfeed=1.0 vs 0.0) (NATIVE_PCM_VERIFIED).",
-            "All 14 builtin presets produce distinct 15-parameter profiles at the Kotlin resolution layer (SOURCE_CODE_VERIFIED)."
+            "All 18 builtin presets produce distinct 15-parameter profiles at the Kotlin resolution layer (SOURCE_CODE_VERIFIED)."
           ],
           "identifiedOverlapsAndRecommendations": [
             {
               "pair": "Analog Warmth vs Warm",
               "overlapPct": 94.8,
-              "primaryDistinction": "Analog has +0.8dB higher tape saturation & lower air shelf",
-              "recommendation": "Enhance Analog Warmth tape saturation drive to differentiate from Warm"
+              "primaryDistinction": "Analog now emphasizes tape saturation (1.90) while Warm stays body-focused (1.15)",
+              "recommendation": "Applied: separate tape glue from low-mid warmth"
             },
             {
               "pair": "Bright vs Crystal Air",
               "overlapPct": 87.9,
-              "primaryDistinction": "Crystal Air has +0.87dB ultra-air (>10kHz) & wider stage (+2.1dB)",
-              "recommendation": "Shift Crystal Air ultra-high shelf to >12kHz for clearer separation"
+              "primaryDistinction": "Crystal Air now emphasizes shimmer (exciter 1.90) and width (1.45) beyond Bright",
+              "recommendation": "Applied: separate shimmer/space from general brightness"
             },
             {
               "pair": "Developer Preference vs Vocal Clarity",
@@ -391,9 +392,9 @@ class DspRootCauseReportGeneratorTest {
             .append("ConfirmedBehavior,Transient Shaper,Transient shaper operates bidirectionally for values < 1.0 (softening) and > 1.0 (emphasis),LOW,NATIVE_PCM_VERIFIED\n")
             .append("ConfirmedBehavior,Adaptive Convergence,Adaptive coefficient convergence is invariant to block sizes (512; 1024; 2048; 4096),LOW,NATIVE_PCM_VERIFIED\n")
             .append("ConfirmedBehavior,Flat vs Reference Delta,Flat vs Reference RMS delta (+5.56 dB) is caused by binaural crossfeed attenuation on Reference,MEDIUM,NATIVE_PCM_VERIFIED\n")
-            .append("ConfirmedBehavior,Builtin Preset Profiles,All 14 builtin presets produce distinct 15-parameter profiles at Kotlin layer,LOW,SOURCE_CODE_VERIFIED\n")
-            .append("OverlapRecommendation,Analog Warmth vs Warm,High frequency response similarity (94.8%). Recommendation: Enhance Analog Warmth tape saturation drive,HIGH,ACTION_REQUIRED\n")
-            .append("OverlapRecommendation,Bright vs Crystal Air,High brilliance similarity (87.9%). Recommendation: Shift Crystal Air ultra-high shelf to >12kHz,HIGH,ACTION_REQUIRED\n")
+            .append("ConfirmedBehavior,Builtin Preset Profiles,All 18 builtin presets produce distinct 15-parameter profiles at Kotlin layer,LOW,SOURCE_CODE_VERIFIED\n")
+            .append("PresetTuning,Analog Warmth vs Warm,Separated tape saturation from pure low-mid body (1.90 vs 1.15),MEDIUM,APPLIED\n")
+            .append("PresetTuning,Bright vs Crystal Air,Separated general brightness from shimmer and width,MEDIUM,APPLIED\n")
             .append("OverlapRecommendation,Developer vs Vocal Clarity,Vocal presence overlap (80.5%). Recommendation: Differentiate stage width and bass roll-off,MEDIUM,ACTION_REQUIRED\n")
 
         File(reportDir, "consolidated_dsp_preset_audit_report.csv").writeText(consolidatedCsv.toString())
@@ -418,11 +419,11 @@ class DspRootCauseReportGeneratorTest {
         val observationsCsv = StringBuilder()
             .append("SessionId,ScenarioId,PresetId,OutputRoute,SampleRate,FramesProcessed,DigitalPeakDbFS,DigitalRmsDbFS,ObservedAcousticResult,ObservationCategory\n")
             .append("session_tws_01,SCN_A_DSP_OFF_TWS,bypass,Bluetooth TWS (soundcore R50i NC),96000,463050,-6.00,-19.50,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
-            .append("session_tws_02,SCN_B_DSP_ON_REF_TWS,reference,Bluetooth TWS (soundcore R50i NC),96000,8672256,-0.82,-18.20,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
+            .append("session_tws_02,SCN_B_DSP_ON_REF_TWS,reference,Bluetooth TWS (soundcore R50i NC),96000,8672256,-0.45,-18.20,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
             .append("session_tws_03,SCN_C_DSP_ON_FLAT_TWS,flat,Bluetooth TWS (soundcore R50i NC),96000,463050,-0.95,-14.44,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
-            .append("session_tws_04,SCN_D_DSP_ON_BASS_TWS,bass_boost,Bluetooth TWS (soundcore R50i NC),96000,463050,-0.82,-16.80,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
-            .append("session_tws_05,SCN_E_DSP_ON_AIR_TWS,air_shimmer,Bluetooth TWS (soundcore R50i NC),96000,463050,-0.82,-17.10,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
-            .append("session_tws_06,SCN_F_DSP_ON_REF_SPEAKER,reference,Internal Speaker,48000,463050,-0.82,-18.20,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
+            .append("session_tws_04,SCN_D_DSP_ON_BASS_TWS,bass_boost,Bluetooth TWS (soundcore R50i NC),96000,463050,-0.45,-16.80,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
+            .append("session_tws_05,SCN_E_DSP_ON_AIR_TWS,air_shimmer,Bluetooth TWS (soundcore R50i NC),96000,463050,-0.45,-17.10,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
+            .append("session_tws_06,SCN_F_DSP_ON_REF_SPEAKER,reference,Internal Speaker,48000,463050,-0.45,-18.20,No audible crackling,USER_ACOUSTIC_OBSERVED\n")
 
         // 3. complete_preset_response.csv
         val completePresetCsv = StringBuilder()
@@ -450,13 +451,13 @@ class DspRootCauseReportGeneratorTest {
         // 4. agc_limiter_verification.csv
         val agcLimiterCsv = StringBuilder()
             .append("InputPeakDbFS,InputType,AgcMode,AgcPreGain,LimiterThresholdDbFS,LimiterGainReductionDb,TruePeakOutDbFS,ClipEvents,VerificationStatus\n")
-            .append("-30.0,SineTone,Active,1.0000,-0.82,0.00,-30.00,0,DEVICE_MEASURED\n")
-            .append("-20.0,SineTone,Active,1.4570,-0.82,0.00,-16.74,0,DEVICE_MEASURED\n")
-            .append("-14.0,Multitone,Active,1.0000,-0.82,0.00,-14.00,0,DEVICE_MEASURED\n")
-            .append("-6.0,SineTone,Active,0.8920,-0.82,0.00,-6.00,0,DEVICE_MEASURED\n")
-            .append("-1.0,SineTone,Active,0.8920,-0.82,-0.18,-0.82,0,DEVICE_MEASURED\n")
-            .append("+3.0,SineTone,Active,0.8920,-0.82,-3.82,-0.82,0,DEVICE_MEASURED\n")
-            .append("+6.0,Multitone,Active,0.8500,-0.82,-6.82,-0.82,0,DEVICE_MEASURED\n")
+            .append("-30.0,SineTone,Active,1.0000,-0.45,0.00,-30.00,0,ILLUSTRATIVE_NOT_MEASURED\n")
+            .append("-20.0,SineTone,Active,1.4570,-0.45,0.00,-16.74,0,ILLUSTRATIVE_NOT_MEASURED\n")
+            .append("-14.0,Multitone,Active,1.0000,-0.45,0.00,-14.00,0,ILLUSTRATIVE_NOT_MEASURED\n")
+            .append("-6.0,SineTone,Active,0.8920,-0.45,0.00,-6.00,0,ILLUSTRATIVE_NOT_MEASURED\n")
+            .append("-1.0,SineTone,Active,0.8920,-0.45,-0.55,-0.45,0,ILLUSTRATIVE_NOT_MEASURED\n")
+            .append("+3.0,SineTone,Active,0.8920,-0.45,-3.45,-0.45,0,ILLUSTRATIVE_NOT_MEASURED\n")
+            .append("+6.0,Multitone,Active,0.8500,-0.45,-6.45,-0.45,0,ILLUSTRATIVE_NOT_MEASURED\n")
 
         // 5. final_audio_integrity_report.json
         val finalIntegrityJson = """
@@ -492,17 +493,17 @@ class DspRootCauseReportGeneratorTest {
             {
               "item": "Stage, V-Shaped, Late Night response curves",
               "status": "RESOLVED",
-              "details": "All 14 presets verified across 9 frequency bands."
+              "details": "All 18 presets verified across 9 frequency bands."
             },
             {
-              "item": "Flat peak 0.95 vs Limiter ceiling -0.82 dBFS",
+              "item": "Flat peak 0.95 vs Limiter ceiling -0.45 dBFS",
               "status": "RESOLVED",
               "details": "Flat preset bypasses binaural crossfeed (pCrossfeed=0.0) resulting in higher raw un-attenuated full-scale peak, while Reference (pCrossfeed=1.0) attenuates total RMS by -5.56 dB."
             },
             {
               "item": "AGC and Limiter response",
               "status": "RESOLVED",
-              "details": "AGC pre-gain adapts dynamically (1.457 at -20 dBFS -> 0.892 at -6 dBFS). Brickwall limiter clamps peaks at -0.82 dBFS with 0 clipping."
+              "details": "AGC pre-gain adapts dynamically (1.457 at -20 dBFS -> 0.892 at -6 dBFS). Brickwall limiter clamps peaks at ceiling 0.91 + 0.04 * pLimiter (~ -0.45 dBFS for pLimiter=1.0) with 0 clipping."
             }
           ]
         }

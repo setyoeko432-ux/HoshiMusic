@@ -369,4 +369,28 @@ class DspPresetTest {
         assertTrue("Body harus memiliki nilai > 1.0 (sustained body)", bodyAbove)
         assertTrue("Body harus memiliki nilai < 1.0 (tight decay)", bodyBelow)
     }
+
+    @Test
+    fun `preset baru memiliki karakter yang sesuai tujuan`() {
+        val podcast = DspPresets.builtinById("podcast_voice")!!.params
+        assertTrue("Podcast harus memangkas low-end", podcast[DspPresets.IDX_BASS] < 1f)
+        assertTrue("Podcast harus mendorong presence vokal", podcast[DspPresets.IDX_VOCAL] > 1f)
+        assertTrue("Podcast harus memperketat mud", podcast[DspPresets.IDX_WARMTH] < 1f)
+        assertTrue("Podcast harus mengaktifkan de-esser", podcast[DspPresets.IDX_DEESSER] > 1f)
+
+        val acoustic = DspPresets.builtinById("acoustic")!!.params
+        assertTrue("Acoustic harus hangat", acoustic[DspPresets.IDX_WARMTH] > 1f)
+        assertTrue("Acoustic harus memberi air ringan", acoustic[DspPresets.IDX_AIR] > 1f)
+        assertTrue("Acoustic tidak boleh memakai saturasi berat", acoustic[DspPresets.IDX_SATURATE] < 1f)
+
+        val cinematic = DspPresets.builtinById("cinematic")!!.params
+        assertTrue("Cinematic harus memiliki low-end besar", cinematic[DspPresets.IDX_BASS] > 1f)
+        assertTrue("Cinematic harus memperlebar panggung", cinematic[DspPresets.IDX_WIDTH] > 1f)
+        assertTrue("Cinematic harus memakai crossfeed spasial", cinematic[DspPresets.IDX_CROSSFEED] >= 1f)
+
+        val lofi = DspPresets.builtinById("lofi")!!.params
+        assertTrue("Lo-Fi harus menyaring treble", lofi[DspPresets.IDX_AIR] < 1f)
+        assertTrue("Lo-Fi harus melembutkan transient", lofi[DspPresets.IDX_TRANSIENT] < 1f)
+        assertTrue("Lo-Fi harus memakai saturasi pita", lofi[DspPresets.IDX_SATURATE] > 1f)
+    }
 }

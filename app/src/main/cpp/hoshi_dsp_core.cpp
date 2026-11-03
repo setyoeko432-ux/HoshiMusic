@@ -246,18 +246,25 @@ void DspEngine::setPreampGain(float g) {
     }
 }
 
-void DspEngine::setCrossfeedPreset(int preset) {
-    int safe = preset < 0 ? 0 : (preset > 2 ? 2 : preset);
+void DspEngine::setSpatialAudioMode(int mode) {
+    int safe = mode < 0 ? 0 : (mode > 2 ? 2 : mode);
     if (xfeedPreset.load(std::memory_order_relaxed) != safe) {
         xfeedPreset.store(safe, std::memory_order_relaxed);
         xfeedDirty.store(true, std::memory_order_release);
     }
 }
 
+void DspEngine::setCrossfeedPreset(int preset) {
+    setSpatialAudioMode(preset);
+}
+
 void DspEngine::setPeqBand(int slot, int type, float fc, float gain, float q) {
     if (slot < 0 || slot >= PEQ_SLOTS) return;
     peqType[slot].store(type < 0 ? 0 : (type > 2 ? 2 : type), std::memory_order_relaxed);
-    peqFc[slot].store(fminf(fmaxf(fc, 20.0f), 20000.0f), std::memory_order_relaxed);
+    peqFc[slot].store(
+        fminf(fmaxf(fc, PEQ_MIN_FREQUENCY_HZ), PEQ_MAX_FREQUENCY_HZ),
+        std::memory_order_relaxed
+    );
     peqGain[slot].store(fminf(fmaxf(gain, -15.0f), 15.0f), std::memory_order_relaxed);
     peqQ[slot].store(fminf(fmaxf(q, 0.1f), 10.0f), std::memory_order_relaxed);
     peqDirty.store(true, std::memory_order_release);
@@ -276,25 +283,50 @@ void DspEngine::applyPeqSnapshot(
     const int* types, const float* fc, const float* gain, const float* q,
     uint32_t revision
 ) {
-    // Write to the back buffer (non-published)
-    int backIdx = 1 - publishedSnapshotIdx.load(std::memory_order_relaxed);
+    // Only configuration threads can contend here; never take this lock from
+    // process(). Serializing writers prevents two JNI calls from selecting and
+    // overwriting the same free slot concurrently.
+    while (peqSnapshotWriterLock.exchange(1, std::memory_order_acquire) != 0) {
+    }
+
+    // Write to a slot that is neither published nor pinned by the audio
+    // thread. A double buffer is insufficient: after the reader loads the old
+    // slot, two fast updates can make the writer reuse that same slot while it
+    // is still being read.
+    const int published = publishedSnapshotIdx.load(std::memory_order_seq_cst);
+    const int reader = readerSnapshotIdx.load(std::memory_order_seq_cst);
+    int backIdx = -1;
+    for (int i = 0; i < PEQ_SNAPSHOT_SLOTS; ++i) {
+        if (i != published && i != reader) {
+            backIdx = i;
+            break;
+        }
+    }
+    if (backIdx < 0) {
+        // The audio thread owns the only non-published slot at this instant.
+        // Keep the last coherent snapshot rather than racing the reader.
+        peqSnapshotWriterLock.store(0, std::memory_order_release);
+        return;
+    }
+
     PeqSnapshot& snap = peqSnapshots[backIdx];
 
     snap.enabled = enabled;
     snap.preampDb = preampDb;
-    snap.count = (count < 0) ? 0 : (count > 10 ? 10 : count);
+    snap.count = (count < 0) ? 0 : (count > PEQ_SLOTS ? PEQ_SLOTS : count);
     snap.revision = revision;
 
-    for (int i = 0; i < 10; ++i) {
-        snap.types[i] = types[i];
-        snap.fc[i] = fc[i];
-        snap.gain[i] = gain[i];
-        snap.q[i] = q[i];
+    for (int i = 0; i < PEQ_SLOTS; ++i) {
+        snap.types[i] = types[i] < 0 ? 0 : (types[i] > 2 ? 2 : types[i]);
+        snap.fc[i] = fminf(fmaxf(fc[i], PEQ_MIN_FREQUENCY_HZ), PEQ_MAX_FREQUENCY_HZ);
+        snap.gain[i] = fminf(fmaxf(gain[i], -15.0f), 15.0f);
+        snap.q[i] = fminf(fmaxf(q[i], 0.1f), 10.0f);
     }
 
     // Publish: switch indices
-    publishedSnapshotIdx.store(backIdx, std::memory_order_release);
+    publishedSnapshotIdx.store(backIdx, std::memory_order_seq_cst);
     peqDirty.store(true, std::memory_order_release);
+    peqSnapshotWriterLock.store(0, std::memory_order_release);
 }
 
 void DspEngine::init(int fs) {
@@ -400,6 +432,8 @@ void DspEngine::setupStaticCoefficients() {
     sLowCut.setHighPass(fs, 160.0f, 0.707f);
     sDecorrelator1.setAllPass(fs, 1600.0f, 0.5f);
     sDecorrelator2.setAllPass(fs, 4400.0f, 0.5f);
+    sDecorrMidA.setAllPass(fs, 1600.0f, 0.5f);
+    sDecorrMidB.setAllPass(fs, 4400.0f, 0.5f);
 
     updateAdaptiveCoefficients(0.01f); // Initial update
 }
@@ -441,20 +475,27 @@ void DspEngine::updateAdaptiveCoefficients(float dt) {
     unmaskSidePeak.setPeaking(fs, 2500.0f, curUnmaskDb, 1.0f);
 
     if (xfeedDirty.load(std::memory_order_acquire)) {
-        const int xp = xfeedPreset.load(std::memory_order_relaxed);
-        const float cut = xp == 1 ? 650.f : (xp == 2 ? 800.f : 700.f);
-        crossfeedLpfL.setLowPass(fs, cut, 0.5f);
-        crossfeedLpfR.setLowPass(fs, cut, 0.5f);
+        const int mode = xfeedPreset.load(std::memory_order_relaxed);
+        // Spatial Audio 3D Binaural Virtualizer Modes:
+        // Mode 0: Standar Binaural (HRTF 750Hz, Pinna 6.5kHz, 220us ITD)
+        // Mode 1: Lebar Stage 3D (HRTF 1200Hz, Pinna 7.2kHz, 350us ITD)
+        // Mode 2: Studio Close (HRTF 950Hz, Pinna 9.2kHz, 280us ITD)
+        const float cut = (mode == 1) ? 1200.0f : ((mode == 2) ? 950.0f : 750.0f);
+        const float notchFc = (mode == 1) ? 7200.0f : ((mode == 2) ? 9200.0f : 6500.0f);
+        itdDelayUs = (mode == 1) ? 350.0f : ((mode == 2) ? 280.0f : 220.0f);
+
+        spatialHrtfLpfL.setLowPass(fs, cut, 0.707f);
+        spatialHrtfLpfR.setLowPass(fs, cut, 0.707f);
+        spatialPinnaNotchL.setPeaking(fs, notchFc, -1.8f, 1.2f);
+        spatialPinnaNotchR.setPeaking(fs, notchFc, -1.8f, 1.2f);
+
         xfeedDirty.store(false, std::memory_order_release);
     }
 }
 
-void DspEngine::updatePeqCoefficients(float dt) {
+void DspEngine::updatePeqCoefficients(float dt, const PeqSnapshot& snap) {
     float fs = static_cast<float>(sampleRate);
     if (fs < 8000.0f) return;
-
-    int currentIdx = publishedSnapshotIdx.load(std::memory_order_acquire);
-    const PeqSnapshot& snap = peqSnapshots[currentIdx];
 
     if (snap.revision != lastProcessedRevision) {
         lastProcessedRevision = snap.revision;
@@ -741,11 +782,12 @@ void DspEngine::processFrame(
     } else if (pTransient < 1.0f) {
         m -= m * deltaM * (0.15f * (1.0f - pTransient)) * gateM;
     }
+    const float mSignSmooth = m / (std::abs(m) + 0.08f);
     if (pBody > 1.0f) {
-        const float bodyAddM = ((m >= 0.0f) ? transSlowM : -transSlowM) * (0.28f * (pBody - 1.0f)) * fminf(1.0f, transSlowM * 20.0f);
+        const float bodyAddM = (mSignSmooth * transSlowM) * (0.28f * (pBody - 1.0f)) * fminf(1.0f, transSlowM * 20.0f);
         m += bodyAddM;
     } else if (pBody < 1.0f) {
-        const float bodySubM = ((m >= 0.0f) ? transSlowM : -transSlowM) * (0.28f * (1.0f - pBody)) * fminf(1.0f, transSlowM * 20.0f);
+        const float bodySubM = (mSignSmooth * transSlowM) * (0.28f * (1.0f - pBody)) * fminf(1.0f, transSlowM * 20.0f);
         m -= bodySubM;
     }
     m = fmaxf(-2.0f, fminf(m, 2.0f));
@@ -763,11 +805,12 @@ void DspEngine::processFrame(
     } else if (pTransient < 1.0f) {
         s -= s * deltaS * (0.15f * (1.0f - pTransient)) * gateS;
     }
+    const float sSignSmooth = s / (std::abs(s) + 0.08f);
     if (pBody > 1.0f) {
-        const float bodyAddS = ((s >= 0.0f) ? transSlowS : -transSlowS) * (0.30f * (pBody - 1.0f)) * fminf(1.0f, transSlowS * 20.0f);
+        const float bodyAddS = (sSignSmooth * transSlowS) * (0.30f * (pBody - 1.0f)) * fminf(1.0f, transSlowS * 20.0f);
         s += bodyAddS;
     } else if (pBody < 1.0f) {
-        const float bodySubS = ((s >= 0.0f) ? transSlowS : -transSlowS) * (0.30f * (1.0f - pBody)) * fminf(1.0f, transSlowS * 20.0f);
+        const float bodySubS = (sSignSmooth * transSlowS) * (0.30f * (1.0f - pBody)) * fminf(1.0f, transSlowS * 20.0f);
         s -= bodySubS;
     }
     s = fmaxf(-2.0f, fminf(s, 2.0f));
@@ -843,7 +886,7 @@ void DspEngine::processFrame(
 
     if (pWidth > 1.0f && std::abs(s) < 0.001f) {
         float midBand = decorrLpf.process(decorrHpf.process(m));
-        float decorrS = (sDecorrelator1.process(midBand) + sDecorrelator2.process(midBand)) * 0.06f * (pWidth - 1.0f);
+        float decorrS = (sDecorrMidA.process(midBand) + sDecorrMidB.process(midBand)) * 0.06f * (pWidth - 1.0f);
         s += decorrS;
     }
     s *= pWidth;
@@ -902,12 +945,35 @@ void DspEngine::processFrame(
     l -= dcOffsetL;
     r -= dcOffsetR;
 
-    const float feedAmt = fminf(0.45f, baseFeed * pCrossfeed);
-    const float dryAmt = 1.0f - feedAmt;
-    float feedL = crossfeedLpfL.process(l) * feedAmt;
-    float feedR = crossfeedLpfR.process(r) * feedAmt;
-    l = (l * dryAmt) + feedR;
-    r = (r * dryAmt) + feedL;
+    // True 3D Binaural Spatial Audio Virtualizer
+    const float spatialAmount = fminf(1.0f, pCrossfeed);
+    if (spatialAmount > 0.001f) {
+        float hrtfL = spatialHrtfLpfL.process(l);
+        float hrtfR = spatialHrtfLpfR.process(r);
+
+        hrtfL = spatialPinnaNotchL.process(hrtfL);
+        hrtfR = spatialPinnaNotchR.process(hrtfR);
+
+        spatialItdBufL[spatialItdIdx] = hrtfL;
+        spatialItdBufR[spatialItdIdx] = hrtfR;
+
+        float fs = static_cast<float>(sampleRate);
+        int itdDelaySamples = static_cast<int>((itdDelayUs * 0.000001f) * fs);
+        if (itdDelaySamples < 1) itdDelaySamples = 1;
+        if (itdDelaySamples > SPATIAL_ITD_BUF_SIZE - 1) itdDelaySamples = SPATIAL_ITD_BUF_SIZE - 1;
+
+        int readIdx = (spatialItdIdx - itdDelaySamples + SPATIAL_ITD_BUF_SIZE) & (SPATIAL_ITD_BUF_SIZE - 1);
+        float itdL = spatialItdBufL[readIdx];
+        float itdR = spatialItdBufR[readIdx];
+
+        spatialItdIdx = (spatialItdIdx + 1) & (SPATIAL_ITD_BUF_SIZE - 1);
+
+        float spatialFeedL = itdL * 0.35f * spatialAmount;
+        float spatialFeedR = itdR * 0.35f * spatialAmount;
+
+        l = (l - spatialFeedL) + spatialFeedR;
+        r = (r - spatialFeedR) + spatialFeedL;
+    }
 
     const float midLtp = 0.5f * (tpPrevL + l), midRtp = 0.5f * (tpPrevR + r);
     float peak = fmaxf(fmaxf(fabsf(l), fabsf(r)),
@@ -927,6 +993,18 @@ void DspEngine::processFrame(
 
 void DspEngine::process(float* buffer, int numSamples) {
     if (sampleRate < 8000) return;
+
+    // Pin one coherent PEQ snapshot for the whole audio buffer. The retry is
+    // necessary when the configuration thread publishes between the first
+    // load and the pin; in that case the reader must not touch the old slot.
+    int snapshotIdx = -1;
+    for (;;) {
+        snapshotIdx = publishedSnapshotIdx.load(std::memory_order_seq_cst);
+        readerSnapshotIdx.store(snapshotIdx, std::memory_order_seq_cst);
+        if (publishedSnapshotIdx.load(std::memory_order_seq_cst) == snapshotIdx) break;
+        readerSnapshotIdx.store(-1, std::memory_order_seq_cst);
+    }
+    const PeqSnapshot& snap = peqSnapshots[snapshotIdx];
 
     // [FIX-2] FPCR (flush-to-zero / denormals-are-zero) bersifat PER-THREAD.
     // init() menyalakannya, tapi init() dan process() belum tentu jalan di
@@ -948,18 +1026,12 @@ void DspEngine::process(float* buffer, int numSamples) {
 
     const bool peqRequest = peqDirty.load(std::memory_order_relaxed);
     if (peqRequest || curPeqWet > 0.001f || targetPeqWet > 0.001f) {
-        updatePeqCoefficients(dt);
+        updatePeqCoefficients(dt, snap);
     }
 
-    // [FIX-5] Salin snapshot PEQ ke variabel lokal SEKALI per buffer.
-    //
-    // applyPeqSnapshot menulis ke back buffer lalu menukar publishedSnapshotIdx.
-    // Kalau dipanggil dua kali berturut-turut sebelum process() sempat membaca,
-    // panggilan kedua bisa menulis ke buffer yang SEDANG dibaca audio thread,
-    // sehingga preampDb dan count berasal dari dua versi berbeda. Dengan
-    // disalin sekali di sini, satu buffer dijamin konsisten.
-    const int currentIdx = publishedSnapshotIdx.load(std::memory_order_acquire);
-    const PeqSnapshot& snap = peqSnapshots[currentIdx];
+    // Snapshot remains pinned until the complete buffer has been processed.
+    // Do not replace this with a second published-index load: the writer must
+    // never be allowed to reuse the slot while PEQ coefficients are read.
     const float targetPreampDb = snap.preampDb;
     const int peqN = snap.count;
     const float targetPreampLinear = std::pow(10.0f, targetPreampDb / 20.0f);
@@ -995,21 +1067,25 @@ void DspEngine::process(float* buffer, int numSamples) {
     // [TRACE] Satu baris per run: param preset benar-benar sampai native
     // dan flag `adsp` (adaptiveDspEnabled) dibaca native. Hanya sekali
     // per run (buffer pertama), agar logcat tidak banjir.
+#ifdef HOSHI_DSP_TRACE
     if (framesProcessed == 0) {
         __android_log_print(ANDROID_LOG_DEBUG, "HoshiDsp", "RUN[trace] bass=%f vocal=%f air=%f sat=%f adsp=%d preampDb=%.3f",
             pBass, pVocal, pAir, pSat, adsp, 20.0f * std::log10f(targetPreampLinear));
     }
+#endif
 
     // [F-06] Satu kali per buffer, bukan per sample.
     updatePresetShelves(pBass, pAir);
 
     // [TRACE] Log sekali per run: koefisien shelf bass statis yang sudah
     // dihitung & dikirim ke filter presetStaticLowShelfL.
+#ifdef HOSHI_DSP_TRACE
     if (framesProcessed == 0) {
         __android_log_print(ANDROID_LOG_DEBUG, "HoshiDsp", "SHELF[trace] bassDb=%f airDb=%f M0=%f M1=%f G=%f",
             (pBass - 1.0f) * 4.5f, (pAir - 1.0f) * 3.5f,
             telemetryData.dbgShelfM0, telemetryData.dbgShelfM1, telemetryData.dbgShelfG);
     }
+#endif
 
     // [FIX-7] Crossfade wet/dry untuk adaptive DSP, 20 ms.
     //
@@ -1087,6 +1163,8 @@ void DspEngine::process(float* buffer, int numSamples) {
         buffer[i * 2] = fmaxf(-1.0f, fminf(1.0f, fl));
         buffer[i * 2 + 1] = fmaxf(-1.0f, fminf(1.0f, fr));
     }
+
+    readerSnapshotIdx.store(-1, std::memory_order_seq_cst);
 
     frameCounter.fetch_add(framesProcessed, std::memory_order_relaxed);
 
@@ -1199,6 +1277,7 @@ void DspEngine::flush() {
     mHarshGuard.reset();
     sLowCut.reset(); sPresence.reset(); sAirShelf.reset();
     sDecorrelator1.reset(); sDecorrelator2.reset();
+    sDecorrMidA.reset(); sDecorrMidB.reset();
     bassExtractLpf.reset(); bassHarmonicHpf_gen.reset(); bassHarmonicLpf_gen.reset(); bassHarmonicHpf_final.reset();
     deEsserHpf.reset(); deEsserLpf.reset(); deEsserNotch.reset();
     for (int e = 0; e < 3; ++e) { essBand[e].reset(); essEnv[e] = 0.0f; }
@@ -1406,23 +1485,25 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_na
 
     // [FIX-4] Validasi null DAN panjang. GetXArrayRegion melempar
     // ArrayIndexOutOfBoundsException (pending exception) bila array lebih pendek
-    // dari 10; tanpa pengecekan, kode tetap lanjut memakai stack array yang
+    // dari 16; tanpa pengecekan, kode tetap lanjut memakai stack array yang
     // belum terisi -- yaitu nilai indeterminate.
     if (!typesArr || !fcArr || !gainArr || !qArr) return;
-    if (env->GetArrayLength(typesArr) < 10 || env->GetArrayLength(fcArr) < 10 ||
-        env->GetArrayLength(gainArr) < 10 || env->GetArrayLength(qArr) < 10) {
+    if (env->GetArrayLength(typesArr) < hoshi::DspEngine::PEQ_SLOTS ||
+        env->GetArrayLength(fcArr) < hoshi::DspEngine::PEQ_SLOTS ||
+        env->GetArrayLength(gainArr) < hoshi::DspEngine::PEQ_SLOTS ||
+        env->GetArrayLength(qArr) < hoshi::DspEngine::PEQ_SLOTS) {
         return;
     }
 
-    jint types[10];
-    jfloat fc[10];
-    jfloat gain[10];
-    jfloat q[10];
+    jint types[hoshi::DspEngine::PEQ_SLOTS];
+    jfloat fc[hoshi::DspEngine::PEQ_SLOTS];
+    jfloat gain[hoshi::DspEngine::PEQ_SLOTS];
+    jfloat q[hoshi::DspEngine::PEQ_SLOTS];
 
-    env->GetIntArrayRegion(typesArr, 0, 10, types);
-    env->GetFloatArrayRegion(fcArr, 0, 10, fc);
-    env->GetFloatArrayRegion(gainArr, 0, 10, gain);
-    env->GetFloatArrayRegion(qArr, 0, 10, q);
+    env->GetIntArrayRegion(typesArr, 0, hoshi::DspEngine::PEQ_SLOTS, types);
+    env->GetFloatArrayRegion(fcArr, 0, hoshi::DspEngine::PEQ_SLOTS, fc);
+    env->GetFloatArrayRegion(gainArr, 0, hoshi::DspEngine::PEQ_SLOTS, gain);
+    env->GetFloatArrayRegion(qArr, 0, hoshi::DspEngine::PEQ_SLOTS, q);
 
     // Pengecekan defensive: kalau salah satu_region gagal, jangan pakai data
     // setengah jadi.
@@ -1481,9 +1562,14 @@ JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_na
     if (dsp) dsp->setPreampGain(gain);
 }
 
+JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetSpatialAudioMode(JNIEnv* env, jobject thiz, jlong handle, jint mode) {
+    auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
+    if (dsp) dsp->setSpatialAudioMode(mode);
+}
+
 JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetCrossfeedPreset(JNIEnv* env, jobject thiz, jlong handle, jint preset) {
     auto* dsp = reinterpret_cast<hoshi::DspEngine*>(handle);
-    if (dsp) dsp->setCrossfeedPreset(preset);
+    if (dsp) dsp->setSpatialAudioMode(preset);
 }
 
 JNIEXPORT void JNICALL Java_com_naomi_hoshimusic_playback_dsp_DspNativeEngine_nativeSetPeqBand(JNIEnv* env, jobject thiz, jlong handle, jint slot, jint type, jfloat fc, jfloat gain, jfloat q) {

@@ -20,8 +20,10 @@ class DspContractTest {
 
     @Test
     fun testPeqMaxConsistency() {
-        // Kontrak: Mesin C++ mengharapkan maksimal 10 band PEQ
-        assertEquals("HoshiDspProcessor.DSP_PEQ_MAX harus 10", 10, HoshiDspProcessor.DSP_PEQ_MAX)
+        // Kontrak: Mesin C++ mengharapkan maksimal 16 band PEQ
+        assertEquals("HoshiDspProcessor.DSP_PEQ_MAX harus 16", DspPresets.PEQ_MAX_BANDS, HoshiDspProcessor.DSP_PEQ_MAX)
+        assertEquals("PEQ minimum harus 20 Hz", 20f, DspPresets.PEQ_MIN_FREQUENCY_HZ)
+        assertEquals("PEQ maksimum harus 16 kHz", 16_000f, DspPresets.PEQ_MAX_FREQUENCY_HZ)
     }
 
     @Test
@@ -86,9 +88,14 @@ class DspContractTest {
 
     @Test
     fun testAutoEqParserLimit() {
-        val longText = (1..15).joinToString("\n") { "Filter $it: ON PK Fc $it Gain 0 Q 1" }
+        val longText = (1..17).joinToString("\n") {
+            val frequency = if (it == 1) 20_000 else it
+            "Filter $it: ON PK Fc $frequency Gain 0 Q 1"
+        }
         val (bands, _) = DspPresets.parseAutoEq(longText)
-        assertEquals("Parser tidak boleh melebihi DSP_PEQ_MAX", 10, bands.size)
+        assertEquals("Parser tidak boleh melebihi DSP_PEQ_MAX", 16, bands.size)
+        assertTrue("Parser harus membatasi frekuensi maksimum ke 16 kHz", bands.all { it.fc <= 16_000f })
+        assertEquals("Frekuensi di atas 16 kHz harus di-clamp", 16_000f, bands.first().fc)
     }
 
     @Test

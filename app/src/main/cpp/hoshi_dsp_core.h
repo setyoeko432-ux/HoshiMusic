@@ -130,23 +130,28 @@ public:
     // Preamp linear (1.0 = netral), diterapkan tepat setelah konversi int16→float
     void setPreampGain(float g);
 
-    // Crossfeed preset earphone: 0=Chu Moy, 1=Jan Meier, 2=RME Wide
+    // Spatial Audio 3D Binaural Virtualizer: 0=Standard Binaural, 1=Wide Stage 3D, 2=Studio Nearfield
+    void setSpatialAudioMode(int mode);
     void setCrossfeedPreset(int preset);
 
-    // PEQ cascade koreksi headphone (impor AutoEq): maks 10 band.
+    // PEQ cascade koreksi headphone (impor AutoEq): maksimal 16 band.
     // type: 0=PEAKING, 1=LOW_SHELF, 2=HIGH_SHELF
     void setPeqBand(int slot, int type, float fc, float gain, float q);
     void setPeqCount(int n);
 
     // [V35]: Sample-accurate Snapshot System
+    static constexpr int PEQ_SLOTS = 16;
+    static constexpr float PEQ_MIN_FREQUENCY_HZ = 20.0f;
+    static constexpr float PEQ_MAX_FREQUENCY_HZ = 16000.0f;
+
     struct PeqSnapshot {
         bool enabled = false;
         float preampDb = 0.0f;
         int count = 0;
-        int types[10];
-        float fc[10];
-        float gain[10];
-        float q[10];
+        int types[PEQ_SLOTS] = {};
+        float fc[PEQ_SLOTS] = {};
+        float gain[PEQ_SLOTS] = {};
+        float q[PEQ_SLOTS] = {};
         uint32_t revision = 0;
     };
 
@@ -161,7 +166,7 @@ private:
     void setupStaticCoefficients();
     void updatePresetShelves(float pBass, float pAir);
     void updateAdaptiveCoefficients(float dt);
-    void updatePeqCoefficients(float dt);
+    void updatePeqCoefficients(float dt, const PeqSnapshot& snapshot);
 
     void processFrame(
         float& l, float& r,
@@ -190,9 +195,15 @@ private:
     // keduanya hanya sumber kebingungan. Gate wet/dry sekarang pakai
     // curAdspWet.
 
-    // [V35]: Atomic Double-Buffering for PEQ
-    PeqSnapshot peqSnapshots[2];
+    // [V35]: Lock-free PEQ snapshots. Three slots ensure the writer can avoid
+    // both the published slot and the slot pinned by the audio thread.
+    static constexpr int PEQ_SNAPSHOT_SLOTS = 3;
+    PeqSnapshot peqSnapshots[PEQ_SNAPSHOT_SLOTS];
     std::atomic<int> publishedSnapshotIdx{0};
+    std::atomic<int> readerSnapshotIdx{-1};
+    // JNI configuration calls are normally serialized by the coordinator,
+    // but this also protects the snapshot writer if two callers race.
+    std::atomic<int> peqSnapshotWriterLock{0};
     uint32_t lastProcessedRevision = 0xFFFFFFFF;
 
     // [V35]: Persistent smoothing states
@@ -228,7 +239,7 @@ private:
 
     TptSvf mSubCut, mMudCut, mLowMidGapCut, mWarmBody, mBoxinessCut, mVocalFormant, mVocalPresence, mConsonantPluck, mUltraAirShelf;
     TptSvf mHarshGuard;              // B1: dip proteksi @3.5 kHz (skala AIR)
-    TptSvf sLowCut, sPresence, sAirShelf, sDecorrelator1, sDecorrelator2;
+    TptSvf sLowCut, sPresence, sAirShelf, sDecorrelator1, sDecorrelator2, sDecorrMidA, sDecorrMidB;
     TptSvf decorrHpf, decorrLpf;     // Band-limited pseudo-stereo decorrelator
     TptSvf bassExtractLpf, bassHarmonicHpf_gen, bassHarmonicLpf_gen, bassHarmonicHpf_final;
     TptSvf deEsserHpf, deEsserLpf, deEsserNotch;
@@ -240,14 +251,20 @@ private:
     TptSvf exciterHpfL, exciterHpfR;
     TptSvf exciterLpfL, exciterLpfR;  // Anti-aliasing LPF @13.5 kHz for exciter
     TptSvf crossfeedLpfL, crossfeedLpfR;
+    TptSvf spatialHrtfLpfL, spatialHrtfLpfR;
+    TptSvf spatialPinnaNotchL, spatialPinnaNotchR;
+    static constexpr int SPATIAL_ITD_BUF_SIZE = 64;
+    float spatialItdBufL[SPATIAL_ITD_BUF_SIZE] = {0.0f};
+    float spatialItdBufR[SPATIAL_ITD_BUF_SIZE] = {0.0f};
+    int spatialItdIdx = 0;
+    float itdDelayUs = 220.0f;
 
     // Sub-band bass protector: batasi hanya komponen <150 Hz agar driver kecil
     // tak "fart-out" saat bass boost/saturasi mendorong level terlalu keras.
     TptSvf protSplitLpfL, protSplitLpfR;
     float protEnvL = 0.0f, protEnvR = 0.0f;
 
-    // Koreksi headphone: cascade PEQ (maks 10 band), parameter disimpan di atomics
-    static constexpr int PEQ_SLOTS = 10;
+    // Koreksi headphone: cascade PEQ (maks 16 band), parameter disimpan di atomics
     TptSvf peqL[PEQ_SLOTS];
     TptSvf peqR[PEQ_SLOTS];
     float curPeqFc[PEQ_SLOTS];

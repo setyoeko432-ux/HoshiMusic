@@ -68,7 +68,7 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         const val DSP_PARAM_COUNT = 15
 
         /** Maks band PEQ, sinkron dengan `PEQ_SLOTS` di mesin C++. */
-        const val DSP_PEQ_MAX = 10
+        const val DSP_PEQ_MAX = DspPresets.PEQ_MAX_BANDS
 
         private const val TAG = "HoshiDsp"
 
@@ -143,6 +143,120 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         private set
 
     val isHardwareSupported: Boolean get() = hardwareSupported
+
+    data class LiveMetricsSnapshot(
+        val timestampMs: Long = System.currentTimeMillis(),
+        val sampleRate: Int = 0,
+        val channels: Int = 2,
+        val totalFrames: Long = 0L,
+        val inPeakDb: Float = -120f,
+        val inRmsDb: Float = -120f,
+        val outPeakDb: Float = -120f,
+        val outRmsDb: Float = -120f,
+        val clipCount: Long = 0L,
+        val nanInfCount: Long = 0L,
+        val pcmDiffFrames: Long = 0L,
+        val avgProcessingUs: Double = 0.0,
+        val maxProcessingUs: Double = 0.0,
+        val activePresetId: String = "reference",
+        val isActuallyProcessing: Boolean = false
+    )
+
+    @Volatile
+    var liveMonitoringEnabled: Boolean = false
+
+    @Volatile
+    var activePresetId: String = "reference"
+
+    private val liveFramesCounter = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveClipCounter = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveNanInfCounter = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveDiffCounter = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveInPeakBits = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveInSumSqBits = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveOutPeakBits = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveOutSumSqBits = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveProcTimeSumNs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveProcTimeMaxNs = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun updateAtomicMaxFloat(atomic: java.util.concurrent.atomic.AtomicLong, value: Float) {
+        var current = atomic.get()
+        while (value > Float.fromBits(current.toInt())) {
+            if (atomic.compareAndSet(current, value.toRawBits().toLong() and 0xFFFFFFFFL)) break
+            current = atomic.get()
+        }
+    }
+
+    private fun updateAtomicMaxLong(atomic: java.util.concurrent.atomic.AtomicLong, value: Long) {
+        var current = atomic.get()
+        while (value > current) {
+            if (atomic.compareAndSet(current, value)) break
+            current = atomic.get()
+        }
+    }
+
+    private fun addAtomicDouble(atomic: java.util.concurrent.atomic.AtomicLong, value: Double) {
+        var current = atomic.get()
+        while (true) {
+            val currentVal = Double.fromBits(current)
+            val newVal = currentVal + value
+            if (atomic.compareAndSet(current, newVal.toRawBits())) break
+            current = atomic.get()
+        }
+    }
+
+    fun getLiveMetricsSnapshot(): LiveMetricsSnapshot {
+        val frames = liveFramesCounter.get()
+        val totalSamples = if (frames > 0) frames * 2 else 1
+        val inPeak = Float.fromBits(liveInPeakBits.get().toInt())
+        val inSumSq = Double.fromBits(liveInSumSqBits.get())
+        val outPeak = Float.fromBits(liveOutPeakBits.get().toInt())
+        val outSumSq = Double.fromBits(liveOutSumSqBits.get())
+
+        val inRms = if (frames > 0) kotlin.math.sqrt(inSumSq / totalSamples).toFloat() else 0f
+        val outRms = if (frames > 0) kotlin.math.sqrt(outSumSq / totalSamples).toFloat() else 0f
+
+        val inPeakDb = if (inPeak > 1e-6f) 20f * kotlin.math.log10(inPeak) else -120f
+        val inRmsDb = if (inRms > 1e-6f) 20f * kotlin.math.log10(inRms) else -120f
+        val outPeakDb = if (outPeak > 1e-6f) 20f * kotlin.math.log10(outPeak) else -120f
+        val outRmsDb = if (outRms > 1e-6f) 20f * kotlin.math.log10(outRms) else -120f
+
+        val procSum = liveProcTimeSumNs.get()
+        val procMax = liveProcTimeMaxNs.get()
+        val avgUs = if (frames > 0) (procSum.toDouble() / 1000.0) / frames else 0.0
+        val maxUs = procMax / 1000.0
+
+        return LiveMetricsSnapshot(
+            timestampMs = System.currentTimeMillis(),
+            sampleRate = inputSampleRate,
+            channels = 2,
+            totalFrames = frames,
+            inPeakDb = inPeakDb,
+            inRmsDb = inRmsDb,
+            outPeakDb = outPeakDb,
+            outRmsDb = outRmsDb,
+            clipCount = liveClipCounter.get(),
+            nanInfCount = liveNanInfCounter.get(),
+            pcmDiffFrames = liveDiffCounter.get(),
+            avgProcessingUs = avgUs,
+            maxProcessingUs = maxUs,
+            activePresetId = activePresetId,
+            isActuallyProcessing = isActuallyProcessing
+        )
+    }
+
+    fun resetLiveMetrics() {
+        liveFramesCounter.set(0L)
+        liveClipCounter.set(0L)
+        liveNanInfCounter.set(0L)
+        liveDiffCounter.set(0L)
+        liveInPeakBits.set(0L)
+        liveInSumSqBits.set(0L)
+        liveOutPeakBits.set(0L)
+        liveOutSumSqBits.set(0L)
+        liveProcTimeSumNs.set(0L)
+        liveProcTimeMaxNs.set(0L)
+    }
 
     /**
      * True HANYA kalau mesin native benar-benar memproses audio.
@@ -288,10 +402,16 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         converter.toFloat(inputBuffer, frames, true)
         val t1 = System.nanoTime()
 
-        // Data float dimulai dari byte 0 (ensureDirectBuffer() selalu clear()).
-        // Jangan pakai work.position(): toFloat() meninggalkannya di ujung data.
+        if (liveMonitoringEnabled) {
+            accumulateLiveInMetrics(work, frames)
+        }
+
         engine.process(work, 0, floatBytes)
         val t2 = System.nanoTime()
+
+        if (liveMonitoringEnabled) {
+            accumulateLiveOutMetrics(work, frames, (t2 - t1))
+        }
 
         val output = replaceOutputBuffer(frames * BYTES_PER_16BIT_FRAME)
         converter.encode16Bit(work, output, frames)
@@ -299,6 +419,53 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         val t3 = System.nanoTime()
 
         diagnostics.recordTiming(t1 - t0, t2 - t1, t3 - t2, frames.toLong())
+    }
+
+    private fun accumulateLiveInMetrics(work: ByteBuffer, frames: Int) {
+        val floatCount = frames * 2
+        var maxPeak = 0f
+        var sumSq = 0.0
+        val oldPos = work.position()
+        work.position(0)
+        for (i in 0 until floatCount) {
+            val f = work.getFloat(i * 4)
+            val absF = kotlin.math.abs(f)
+            if (absF > maxPeak) maxPeak = absF
+            sumSq += (f * f).toDouble()
+        }
+        work.position(oldPos)
+
+        updateAtomicMaxFloat(liveInPeakBits, maxPeak)
+        addAtomicDouble(liveInSumSqBits, sumSq)
+    }
+
+    private fun accumulateLiveOutMetrics(work: ByteBuffer, frames: Int, procTimeNs: Long) {
+        val floatCount = frames * 2
+        var maxPeak = 0f
+        var sumSq = 0.0
+        var clips = 0L
+        var nanInfs = 0L
+
+        val oldPos = work.position()
+        work.position(0)
+        for (i in 0 until floatCount) {
+            val f = work.getFloat(i * 4)
+            if (f.isNaN() || f.isInfinite()) nanInfs++
+            val absF = kotlin.math.abs(f)
+            if (absF >= 0.999f) clips++
+            if (absF > maxPeak) maxPeak = absF
+            sumSq += (f * f).toDouble()
+        }
+        work.position(oldPos)
+
+        liveFramesCounter.addAndGet(frames.toLong())
+        liveClipCounter.addAndGet(clips)
+        liveNanInfCounter.addAndGet(nanInfs)
+        liveDiffCounter.addAndGet(frames.toLong())
+        updateAtomicMaxFloat(liveOutPeakBits, maxPeak)
+        addAtomicDouble(liveOutSumSqBits, sumSq)
+        liveProcTimeSumNs.addAndGet(procTimeNs)
+        updateAtomicMaxLong(liveProcTimeMaxNs, procTimeNs)
     }
 
     /**
@@ -416,6 +583,9 @@ class HoshiDspProcessor : BaseAudioProcessor() {
 
     fun setSystemVolume(volume: Float) = engine.setSystemVolume(volume)
 
+    fun setSpatialAudioMode(mode: Int) = engine.setSpatialAudioMode(mode)
+    fun setCrossfeedPreset(preset: Int) = engine.setSpatialAudioMode(preset)
+
     fun setEnabled(enabled: Boolean) {
         synchronized(desiredConfig) {
             if (desiredConfig.enabled == enabled &&
@@ -515,7 +685,7 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         ensureAdaptiveEnabledForParams(spatialParams)
     }
 
-    /** Terapkan konfigurasi PEQ secara atomik (double-buffer di sisi native). */
+    /** Terapkan konfigurasi PEQ secara atomik (triple-buffer di sisi native). */
     fun applyPeqSnapshot(enabled: Boolean, preampDb: Float, bands: List<PeqBand>) {
         val count = bands.size.coerceAtMost(DSP_PEQ_MAX)
         val types = IntArray(DSP_PEQ_MAX)
@@ -526,9 +696,9 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         bands.forEachIndexed { i, b ->
             if (i < DSP_PEQ_MAX) {
                 types[i] = b.type
-                fc[i] = b.fc
-                gain[i] = b.gain
-                q[i] = b.q
+                fc[i] = b.fc.coerceIn(DspPresets.PEQ_MIN_FREQUENCY_HZ, DspPresets.PEQ_MAX_FREQUENCY_HZ)
+                gain[i] = b.gain.coerceIn(-15f, 15f)
+                q[i] = b.q.coerceIn(0.1f, 10f)
             }
         }
 

@@ -419,7 +419,7 @@ internal fun PatchNotesDialog(onDismiss: () -> Unit) {
                     PatchVersionSection(
                         version = "1.3.x Series",
                         notes = listOf(
-                            "Pro Audio Suite: Implementasi 10-band Parametric EQ (AutoEq) dan layout Flagship Fader vertikal.",
+                            "Pro Audio Suite: Implementasi 16-band Parametric EQ (AutoEq, 20 Hz–16 kHz) dan layout Flagship Fader vertikal.",
                             "HyperOS Support: Kompatibilitas sistem database dan library native untuk perangkat Xiaomi/HyperOS.",
                             "Linguistic Engine: Penambahan fitur Romanisasi otomatis dan pembersihan karakter lirik internal."
                         )
