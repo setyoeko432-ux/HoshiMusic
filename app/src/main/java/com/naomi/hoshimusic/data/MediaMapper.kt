@@ -248,6 +248,7 @@ object MediaMapper {
      * dan jangan deteksi ulang lalu menimpanya.
      * [C10]: detection now runs on mojibake-repaired text.
      */
+    @android.annotation.SuppressLint("NewApi")
     fun processMetadata(entity: SongEntity): SongEntity {
         val repaired = repairTexts(entity)
 
@@ -270,7 +271,9 @@ object MediaMapper {
             HoshiRomanizer.detectLanguage(metadataText)
         }
 
-        val supportsRomanization = HoshiRomanizer.isSupported()
+        // Japanese romanization is implemented with Kuromoji and the pure-JVM
+        // kana converter, so it must not be disabled on Android 26-28.
+        val supportsRomanization = HoshiRomanizer.isSupported() || lang == RomanizationLanguage.JA
 
         // Hint bahasa diteruskan: judul pure-kanji (HAN_AMBIGUOUS)
         // akan mengikuti bahasa lagu, bukan langsung dianggap Mandarin

@@ -51,10 +51,22 @@ object RomajiHelper {
         // HoshiRomanizer.romanize() ditandai @RequiresApi(Q) karena memakai
         // android.icu. minSdk proyek 26, jadi tanpa penjaga ini perangkat
         // Android 8.0-9 ikut crash saat romanisasi lirik.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return transliterateFallback(text)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // Kuromoji and the kana converter are pure JVM code, so Japanese
+            // romanization can still work on the app's minSdk (26) without ICU.
+            return pureJapaneseFallback(text)
+        }
         // Use HoshiRomanizer to get accurate readings for Kanji (requires kuromoji)
         val res = HoshiRomanizer.romanize(text, RomanizationLanguage.JA)
         return res.romanized ?: transliterateFallback(text)
+    }
+
+    private fun pureJapaneseFallback(text: String): String {
+        val tokens = HoshiRomanizer.furiganaTokens(text)
+        if (tokens.isEmpty()) return transliterateFallback(text)
+        return tokens.joinToString(separator = "") { token ->
+            token.romaji ?: token.surface
+        }.ifBlank { transliterateFallback(text) }
     }
 
     private fun transliterateFallback(text: String): String {
@@ -72,6 +84,7 @@ object RomajiHelper {
         // [7c] Sinkronisasi dengan blok CJK HoshiRomanizer (Audit RH4)
         return (code in 0x3040..0x309F) || // Hiragana
                (code in 0x30A0..0x30FF) || // Katakana
+               (code in 0xFF66..0xFF9F) || // Half-width Katakana
                (code in 0x4E00..0x9FFF) || // Kanji
                (code in 0x3400..0x4DBF) || // Kanji Ext A
                (code in 0x20000..0x2A6DF) || // Kanji Ext B

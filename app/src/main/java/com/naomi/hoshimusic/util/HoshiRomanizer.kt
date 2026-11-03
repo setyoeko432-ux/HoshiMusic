@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import com.atilika.kuromoji.ipadic.Tokenizer
+import java.text.Normalizer
 
 /**
  * Hoshi Romanizer Engine (V5.5 - Heuristic Language Disambiguation & Fallback)
@@ -14,7 +15,7 @@ object HoshiRomanizer {
     private const val TAG = "HoshiRomanizer"
 
     // [Fase 6] Versi engine untuk invalidasi cache
-    const val VERSION = 2
+    const val VERSION = 3
 
     private val WHITESPACE = Regex("\\s+")
 
@@ -67,12 +68,23 @@ object HoshiRomanizer {
      */
     fun normalizeFullWidth(text: String): String {
         val sb = StringBuilder(text.length)
-        for (ch in text) {
+        var index = 0
+        while (index < text.length) {
+            val ch = text[index]
+            // NFKC is deliberately limited to half-width Katakana runs. Applying it
+            // to the complete lyric would also change symbols such as ① or ㎏.
+            if (ch.code in 0xFF66..0xFF9F) {
+                val start = index
+                while (index < text.length && text[index].code in 0xFF66..0xFF9F) index++
+                sb.append(Normalizer.normalize(text.substring(start, index), Normalizer.Form.NFKC))
+                continue
+            }
             when (ch.code) {
                 in 0xFF01..0xFF5E -> sb.append((ch.code - 0xFEE0).toChar())
                 0x3000 -> sb.append(' ')
                 else -> sb.append(ch)
             }
+            index++
         }
         return sb.toString()
     }
@@ -304,7 +316,7 @@ object HoshiRomanizer {
             return RomanizationResult(text, null, effective).also { resultCache[cacheKey] = it }
         }
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && effective != RomanizationLanguage.JA) {
             return RomanizationResult(text, null, effective).also { resultCache[cacheKey] = it }
         }
 
@@ -358,6 +370,7 @@ object HoshiRomanizer {
 
         // ICU Any-Latin will transliterate Katakana to Alphabet Romaji
         genericTransliterator?.transliterate(fixedKatakana)
+            ?: katakanaToRomaji(fixedKatakana).takeIf { it.isNotBlank() }
     }.getOrNull()
 
     /**
@@ -437,6 +450,8 @@ object HoshiRomanizer {
         "ヤ" to "ya", "ユ" to "yu", "ヨ" to "yo",
         "ラ" to "ra", "リ" to "ri", "ル" to "ru", "レ" to "re", "ロ" to "ro",
         "ワ" to "wa", "ヲ" to "o",
+        "ヰ" to "wi", "ヱ" to "we", "ヵ" to "ka", "ヶ" to "ke", "ヮ" to "wa",
+        "ァ" to "a", "ィ" to "i", "ゥ" to "u", "ェ" to "e", "ォ" to "o",
         "ガ" to "ga", "ギ" to "gi", "グ" to "gu", "ゲ" to "ge", "ゴ" to "go",
         "ザ" to "za", "ジ" to "ji", "ズ" to "zu", "ゼ" to "ze", "ゾ" to "zo",
         "ダ" to "da", "ヂ" to "ji", "ヅ" to "zu", "デ" to "de", "ド" to "do",
@@ -458,6 +473,14 @@ object HoshiRomanizer {
         "ティ" to "ti", "ディ" to "di", "トゥ" to "tu", "ドゥ" to "du",
         "ウィ" to "wi", "ウェ" to "we", "ウォ" to "wo",
         "シェ" to "she", "ジェ" to "je", "チェ" to "che",
+        "イェ" to "ye", "ウァ" to "wa",
+        "クァ" to "kwa", "クィ" to "kwi", "クェ" to "kwe", "クォ" to "kwo",
+        "グァ" to "gwa", "スィ" to "si", "ズィ" to "zi", "ツァ" to "tsa",
+        "ツィ" to "tsi", "ツェ" to "tse", "ツォ" to "tso",
+        "テュ" to "tyu", "デュ" to "dyu",
+        "フュ" to "fyu", "ヴァ" to "va", "ヴィ" to "vi", "ヴェ" to "ve", "ヴォ" to "vo",
+        "ヷ" to "va", "ヸ" to "vi", "ヹ" to "ve", "ヺ" to "vo",
+        "ヿ" to "koto",
     )
 
     private fun kanaRomajiAt(text: String, index: Int): Pair<String, Int>? {
@@ -472,29 +495,34 @@ object HoshiRomanizer {
     /** Hepburn sederhana: yōon digraf, sokuon (ganda konsonan), vokal panjang 'ー', ん=n. */
     fun katakanaToRomaji(katakana: String): String {
         if (katakana.isBlank()) return ""
+        val normalized = normalizeFullWidth(katakana)
         val sb = StringBuilder()
         var i = 0
-        while (i < katakana.length) {
-            val c = katakana[i]
+        while (i < normalized.length) {
+            val c = normalized[i]
             when {
-                c == 'ー' -> sb.lastOrNull { it in "aiueo" }?.let { sb.append(it) }
+                c == 'ー' -> {
+                    // Do not silently drop a prolonged-sound mark when the input is
+                    // malformed or starts with it.
+                    sb.lastOrNull { it in "aiueo" }?.let { sb.append(it) } ?: sb.append(c)
+                }
                 c == 'ッ' || c == 'っ' -> {
-                    val next = kanaRomajiAt(katakana, i + 1)?.first.orEmpty()
+                    val next = kanaRomajiAt(normalized, i + 1)?.first.orEmpty()
                     when (val cons = next.firstOrNull { it !in "aiueo" }) {
                         'c' -> sb.append('t')
-                        null -> Unit
+                        null -> sb.append(c)
                         else -> sb.append(cons)
                     }
                 }
                 c == 'ン' || c == 'ん' -> {
                     // FIX AUDIT: ん sebelum vokal/y butuh apostrof (ンア → "n'a",
                     // bukan "na" yang salah baca); sebelum konsonan cukup "n".
-                    val nxt = kanaRomajiAt(katakana, i + 1)?.first.orEmpty()
+                    val nxt = kanaRomajiAt(normalized, i + 1)?.first.orEmpty()
                     val needsApostrophe = nxt.isNotEmpty() && (nxt[0] in "aiueo" || nxt[0] == 'y')
                     sb.append(if (needsApostrophe) "n'" else "n")
                 }
                 else -> {
-                    val hit = kanaRomajiAt(katakana, i)
+                    val hit = kanaRomajiAt(normalized, i)
                     if (hit != null) {
                         sb.append(hit.first); i += hit.second; continue
                     }

@@ -111,7 +111,7 @@ class LyricsRepository(private val context: Context) {
                     HoshiRomanizer.detectLyricsLanguage(result!!.plainText)
                 } else song.detectedLanguage
 
-                if (romanize && HoshiRomanizer.isSupported()) {
+                if (romanize && (HoshiRomanizer.isSupported() || effectiveLang == RomanizationLanguage.JA)) {
                     result = applyRomanizationRealTime(result!!, effectiveLang)
                 }
 
@@ -210,7 +210,9 @@ class LyricsRepository(private val context: Context) {
 
     @android.annotation.SuppressLint("NewApi")
     private fun applyRomanizationRealTime(result: LyricsResult, lang: RomanizationLanguage): LyricsResult {
-        if (!HoshiRomanizer.isSupported()) return result
+        // Japanese uses Kuromoji plus the pure-JVM kana converter and is
+        // available on minSdk 26. Chinese/Korean still require Android ICU.
+        if (!HoshiRomanizer.isSupported() && lang != RomanizationLanguage.JA) return result
 
         return result.copy(lines = result.lines.map { line ->
             val rawText = line.text.trim()

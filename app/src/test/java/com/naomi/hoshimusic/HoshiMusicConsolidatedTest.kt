@@ -360,6 +360,21 @@ class HoshiMusicConsolidatedTest {
     }
 
     @Test
+    fun `halfwidth katakana is normalized without changing compatibility symbols`() {
+        assertEquals("ガッコウ", HoshiRomanizer.normalizeFullWidth("ｶﾞｯｺｳ"))
+        assertEquals("shainingu", HoshiRomanizer.katakanaToRomaji("ｼｬｲﾆﾝｸﾞ"))
+        assertEquals("shainingu", RomajiHelper.toRomaji("ｼｬｲﾆﾝｸﾞ"))
+        assertEquals("① ㎏", HoshiRomanizer.normalizeFullWidth("① ㎏"))
+    }
+
+    @Test
+    fun `small and extended katakana are romanized and malformed marks are preserved`() {
+        assertEquals("aiueowiwe", HoshiRomanizer.katakanaToRomaji("ァィゥェォヰヱ"))
+        assertEquals("vavivevo", HoshiRomanizer.katakanaToRomaji("ヷヸヹヺ"))
+        assertEquals("ッー", HoshiRomanizer.katakanaToRomaji("ッー"))
+    }
+
+    @Test
     fun `sokuon doubles next consonant`() {
         assertEquals("kitto", HoshiRomanizer.katakanaToRomaji("キット"))
         assertEquals("kotchi", HoshiRomanizer.katakanaToRomaji("コッチ"))
