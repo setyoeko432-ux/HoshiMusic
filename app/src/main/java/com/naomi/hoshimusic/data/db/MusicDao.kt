@@ -32,6 +32,13 @@ interface MusicDao {
     @Query("UPDATE OR REPLACE songs SET mediaId = :newId WHERE mediaId = :oldId")
     suspend fun remapSongMediaId(oldId: String, newId: String)
 
+    // [FIX-BUG7] Update dependent translation_overrides rows when a song's mediaId
+    // is remapped. Without this the foreign-key constraint on the songs table is
+    // satisfied but translation_overrides rows are left as orphans referencing the
+    // old (deleted) mediaId, making them permanently invisible to the UI.
+    @Query("UPDATE translation_overrides SET mediaId = :newId WHERE mediaId = :oldId")
+    suspend fun remapTranslationOverrideMediaId(oldId: String, newId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<SongEntity>)
 

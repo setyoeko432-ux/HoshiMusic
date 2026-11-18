@@ -182,6 +182,7 @@ class DspNativeEngine(private val tag: String) {
     fun setBtClarity(on: Boolean) = withHandle("setBtClarity") { nativeSetBtClarity(it, on) }
     fun setAmbience(on: Boolean) = withHandle("setAmbience") { nativeSetAmbience(it, on) }
     fun setPreampGain(gain: Float) = withHandle("setPreampGain") { nativeSetPreampGain(it, gain) }
+    fun setSpatialAudioMode(mode: Int) = withHandle("setSpatialAudioMode") { nativeSetSpatialAudioMode(it, mode) }
     fun setSystemVolume(volume: Float) = withHandle("setSystemVolume") { nativeSetSystemVolume(it, volume) }
 
     fun applyPeqSnapshot(
@@ -289,6 +290,7 @@ class DspNativeEngine(private val tag: String) {
     private external fun nativeSetBtClarity(handle: Long, enabled: Boolean)
     private external fun nativeSetAmbience(handle: Long, enabled: Boolean)
     private external fun nativeSetPreampGain(handle: Long, gain: Float)
+    private external fun nativeSetSpatialAudioMode(handle: Long, mode: Int)
 
     companion object {
         /**

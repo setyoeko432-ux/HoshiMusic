@@ -579,6 +579,13 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         engine.setBtClarity(snapshot.btClarity)
         engine.setAmbience(snapshot.ambience)
         engine.setPreampGain(snapshot.preampGain)
+        // [FIX-BUG5] Restore spatial audio mode after sink re-configure.
+        // Previously pushAllStateToNative() did not resend the spatial preset,
+        // so switching output devices (headphones, speaker, USB DAC) silently
+        // reset spatial virtualisation to the default mode (0 = Standard Binaural).
+        if (snapshot.spatialAudioEnabled) {
+            engine.setSpatialAudioMode(snapshot.spatialAudioPreset)
+        }
     }
 
     fun setSystemVolume(volume: Float) = engine.setSystemVolume(volume)

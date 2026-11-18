@@ -1288,6 +1288,14 @@ void DspEngine::flush() {
     exciterLpfL.reset(); exciterLpfR.reset();
     decorrHpf.reset(); decorrLpf.reset();
     crossfeedLpfL.reset(); crossfeedLpfR.reset();
+    // [FIX-BUG3] Reset spatial HRTF filters and ITD delay buffer on flush to
+    // prevent audible pop/click artefacts on seek. Previously these were
+    // only reset by init(), leaving stale IIR state across seek boundaries.
+    spatialHrtfLpfL.reset(); spatialHrtfLpfR.reset();
+    spatialPinnaNotchL.reset(); spatialPinnaNotchR.reset();
+    spatialItdIdx = 0;
+    std::fill(std::begin(spatialItdBufL), std::end(spatialItdBufL), 0.0f);
+    std::fill(std::begin(spatialItdBufR), std::end(spatialItdBufR), 0.0f);
     protSplitLpfL.reset(); protSplitLpfR.reset();
     for (int b = 0; b < PEQ_SLOTS; ++b) {
         peqL[b].reset();

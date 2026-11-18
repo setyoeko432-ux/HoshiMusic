@@ -22,6 +22,26 @@ abstract class HoshiDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: HoshiDatabase? = null
 
+        // [FIX-BUG6] Add missing migration steps for version gaps that caused
+        // IllegalStateException crashes on devices upgrading from early builds.
+        // These are intentional no-ops: the schema did not change between these
+        // versions, but Room requires a registered Migration for every hop.
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change */ }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change */ }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change */ }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) { /* no schema change */ }
+        }
+
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE songs ADD COLUMN metadataScanStatus TEXT NOT NULL DEFAULT 'PENDING'")
@@ -112,7 +132,7 @@ abstract class HoshiDatabase : RoomDatabase() {
                     HoshiDatabase::class.java,
                     "hoshi_music_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                 // Hapus destructive migration untuk melindungi statistik pengguna
                 .build()
                 INSTANCE = instance

@@ -74,6 +74,9 @@ class MusicRepository(private val context: Context) {
             val match = freshByPhysical[old.displayName to old.fileSize] ?: return@forEach
             if (old.mediaId != match.stableId) {
                 musicDao.remapSongMediaId(old.mediaId, match.stableId)
+                // [FIX-BUG7] Also remap dependent rows in translation_overrides so that
+                // user lyric corrections are not lost (orphaned) after a mediaId migration.
+                musicDao.remapTranslationOverrideMediaId(old.mediaId, match.stableId)
                 mapping[old.mediaId] = match.stableId
             }
         }

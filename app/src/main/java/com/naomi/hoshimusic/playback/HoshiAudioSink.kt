@@ -580,22 +580,33 @@ private class HoshiAudioOutputProvider(
     ) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val supportedAttributes = audioManager.getSupportedMixerAttributes(device)
-        
+
         val bitPerfectAttr = supportedAttributes.find { attr ->
             attr.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT
         }
 
         if (bitPerfectAttr != null) {
+            // [FIX-BUG2] AudioTrack.Builder has no setAudioMixerAttributes method.
+            // The correct API is AudioManager.setPreferredMixerAttributes which applies
+            // the bit-perfect configuration to the audio session for the given device.
             try {
-                // Gunakan refleksi untuk menghindari error build jika IDE SDK tertinggal
-                val method = builder.javaClass.getMethod("setAudioMixerAttributes", AudioMixerAttributes::class.java)
-                method.invoke(builder, bitPerfectAttr)
-                DiagLog.i("HoshiAudio", "Applied BIT_PERFECT MixerAttributes for ${device.productName}")
+                val audioAttributes = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+                val success = audioManager.setPreferredMixerAttributes(
+                    audioAttributes, device, bitPerfectAttr
+                )
+                if (success) {
+                    DiagLog.i("HoshiAudio", "Applied BIT_PERFECT MixerAttributes for ${device.productName}")
+                } else {
+                    DiagLog.w("HoshiAudio", "setPreferredMixerAttributes returned false for ${device.productName}")
+                }
             } catch (e: Exception) {
-                // Jika compileSdk sudah benar, pemanggilan langsung lebih baik
-                // builder.setAudioMixerAttributes(bitPerfectAttr)
-                DiagLog.e("HoshiAudio", "Reflection call for setAudioMixerAttributes failed", e)
+                DiagLog.e("HoshiAudio", "setPreferredMixerAttributes failed for ${device.productName}", e)
             }
+        } else {
+            DiagLog.i("HoshiAudio", "No BIT_PERFECT mixer attribute supported for ${device.productName}")
         }
     }
 }

@@ -64,7 +64,12 @@ object RomajiHelper {
     private fun pureJapaneseFallback(text: String): String {
         val tokens = HoshiRomanizer.furiganaTokens(text)
         if (tokens.isEmpty()) return transliterateFallback(text)
-        return tokens.joinToString(separator = "") { token ->
+        // [FIX-BUG10] On Android <10 (pre-Q) the ICU Transliterator is unavailable,
+        // so we fall back to Kuromoji furigana tokens. The original joinToString("")
+        // concatenated every token with no separator, producing unreadable romaji like
+        // "konoSekainonakakaraAnatawo" (all words run together). Use a space separator
+        // so the output is human-readable on Android 8/9 devices (minSdk 26).
+        return tokens.joinToString(separator = " ") { token ->
             token.romaji ?: token.surface
         }.ifBlank { transliterateFallback(text) }
     }

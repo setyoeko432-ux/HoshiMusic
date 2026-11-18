@@ -169,7 +169,17 @@ object MediaMapper {
         val meta = item.mediaMetadata
         val extras = item.mediaMetadata.extras
         val albumId = extras?.getLong("album_id", -1L) ?: -1L
-        
+
+        // [FIX-BUG8] Use the MediaItem's own mediaId as the displayName/stableId anchor
+        // so that every fallback Song produced by this method has a unique stable ID.
+        // Previously all fields (volumeName, relativePath, displayName, fileSize) defaulted
+        // to empty/zero, making Song.stableId identical for every distinct MediaItem that
+        // lacked a full library entry — causing silent duplicate-track collisions in
+        // queue-mapping and playback history.
+        val mediaId = item.mediaId.ifBlank {
+            "fallback:${System.nanoTime()}:${meta.title ?: "unknown"}"
+        }
+
         return Song(
             id = extras?.getLong("media_store_id", -1L) ?: -1L,
             albumId = albumId,
@@ -184,8 +194,8 @@ object MediaMapper {
             folder = "",
             relativePath = "",
             absolutePath = null,
-            displayName = "",
-            volumeName = "",
+            displayName = mediaId,  // use the stable mediaId so Song.stableId is unique
+            volumeName = "fallback",
             trackNumber = 0,
             dateAddedMs = 0,
             mimeType = "",
