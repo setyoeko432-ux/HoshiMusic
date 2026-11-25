@@ -579,13 +579,8 @@ class HoshiDspProcessor : BaseAudioProcessor() {
         engine.setBtClarity(snapshot.btClarity)
         engine.setAmbience(snapshot.ambience)
         engine.setPreampGain(snapshot.preampGain)
-        // [FIX-BUG5] Restore spatial audio mode after sink re-configure.
-        // Previously pushAllStateToNative() did not resend the spatial preset,
-        // so switching output devices (headphones, speaker, USB DAC) silently
-        // reset spatial virtualisation to the default mode (0 = Standard Binaural).
-        if (snapshot.spatialAudioEnabled) {
-            engine.setSpatialAudioMode(snapshot.spatialAudioPreset)
-        }
+        // Restore spatial audio mode after sink re-configure (or reset to 0 when disabled).
+        engine.setSpatialAudioMode(if (snapshot.spatialAudioEnabled) snapshot.spatialAudioPreset else 0)
     }
 
     fun setSystemVolume(volume: Float) = engine.setSystemVolume(volume)
@@ -669,6 +664,8 @@ class HoshiDspProcessor : BaseAudioProcessor() {
             desiredConfig.spatialAudioEnabled = enabled
             desiredConfig.spatialAudioPreset = preset
         }
+
+        engine.setSpatialAudioMode(if (enabled) preset else 0)
 
         val baseParams = synchronized(desiredConfig) { desiredConfig.params?.clone() } ?: return
         val spatialParams = baseParams.clone()

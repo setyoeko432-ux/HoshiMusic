@@ -176,8 +176,9 @@ object MediaMapper {
         // to empty/zero, making Song.stableId identical for every distinct MediaItem that
         // lacked a full library entry — causing silent duplicate-track collisions in
         // queue-mapping and playback history.
+        val uriString = item.localConfiguration?.uri?.toString()?.takeIf { it.isNotBlank() }
         val mediaId = item.mediaId.ifBlank {
-            "fallback:${System.nanoTime()}:${meta.title ?: "unknown"}"
+            uriString ?: "fallback:${System.nanoTime()}:${meta.title ?: "unknown"}"
         }
 
         return Song(

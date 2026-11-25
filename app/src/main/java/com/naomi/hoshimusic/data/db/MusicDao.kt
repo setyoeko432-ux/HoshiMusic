@@ -29,15 +29,41 @@ interface MusicDao {
     @Query("SELECT * FROM songs WHERE lastScannedMs = 0 LIMIT 50")
     suspend fun getUnscannedSongs(): List<SongEntity>
 
+    @Query("SELECT * FROM songs WHERE mediaId = :mediaId LIMIT 1")
+    suspend fun getSongById(mediaId: String): SongEntity?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSongIgnore(song: SongEntity): Long
+
+    @Query("DELETE FROM songs WHERE mediaId = :mediaId")
+    suspend fun deleteSongById(mediaId: String)
+
     @Query("UPDATE OR REPLACE songs SET mediaId = :newId WHERE mediaId = :oldId")
     suspend fun remapSongMediaId(oldId: String, newId: String)
 
+    @Query("UPDATE song_ai_tags SET songMediaId = :newId WHERE songMediaId = :oldId")
+    suspend fun remapAiTagsMediaId(oldId: String, newId: String)
+
     // [FIX-BUG7] Update dependent translation_overrides rows when a song's mediaId
-    // is remapped. Without this the foreign-key constraint on the songs table is
-    // satisfied but translation_overrides rows are left as orphans referencing the
-    // old (deleted) mediaId, making them permanently invisible to the UI.
-    @Query("UPDATE translation_overrides SET mediaId = :newId WHERE mediaId = :oldId")
+    // is remapped. UPDATE OR IGNORE prevents PK collision if target override already exists.
+    @Query("UPDATE OR IGNORE translation_overrides SET mediaId = :newId WHERE mediaId = :oldId")
     suspend fun remapTranslationOverrideMediaId(oldId: String, newId: String)
+
+    /**
+     * Remap a song's primary key safely without violating song_ai_tags's
+     * ON UPDATE NO ACTION foreign key or losing rows via ON DELETE CASCADE.
+     */
+    @Transaction
+    suspend fun remapSongMediaIdSafely(oldId: String, newId: String) {
+        if (oldId == newId) return
+        val oldSong = getSongById(oldId) ?: return
+        if (getSongById(newId) == null) {
+            insertSongIgnore(oldSong.copy(mediaId = newId))
+        }
+        remapAiTagsMediaId(oldId, newId)
+        remapTranslationOverrideMediaId(oldId, newId)
+        deleteSongById(oldId)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<SongEntity>)

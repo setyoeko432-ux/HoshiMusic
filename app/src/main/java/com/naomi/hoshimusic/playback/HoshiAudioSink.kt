@@ -344,7 +344,12 @@ class HoshiAudioSink(
     
     override fun getSkipSilenceEnabled(): Boolean = delegate.getSkipSilenceEnabled()
     
-    override fun setAudioAttributes(audioAttributes: AudioAttributes) = delegate.setAudioAttributes(audioAttributes)
+    override fun setAudioAttributes(audioAttributes: AudioAttributes) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            outputProvider.updateAudioAttributes(audioAttributes.audioAttributesV21.audioAttributes)
+        }
+        delegate.setAudioAttributes(audioAttributes)
+    }
     
     override fun getAudioAttributes(): AudioAttributes = delegate.getAudioAttributes()
     
@@ -452,6 +457,16 @@ private class HoshiAudioOutputProvider(
 
     private var lastPreferredDevice: AudioDeviceInfo? = null
 
+    @Volatile
+    private var currentPlatformAudioAttributes: android.media.AudioAttributes? = null
+
+    private var appliedMixerDevice: AudioDeviceInfo? = null
+    private var appliedMixerAudioAttributes: android.media.AudioAttributes? = null
+
+    fun updateAudioAttributes(audioAttributes: android.media.AudioAttributes) {
+        currentPlatformAudioAttributes = audioAttributes
+    }
+
     // [A7-AUDIT] Referensi AudioOutput asli, dipakai untuk membaca
     // buffer yang benar-benar dialokasikan (bukan yang diminta).
     @Volatile
@@ -501,9 +516,15 @@ private class HoshiAudioOutputProvider(
             val bitPerfectPreferred = bitPerfectPreferredCache
             val lowLatency = lowLatencyAudioCache
             
-            if (bitPerfectPreferred && device != null && isUsbDevice(device)) {
-                if (Build.VERSION.SDK_INT >= 34) {
-                    applyMixerAttributes(builder, device)
+            if (Build.VERSION.SDK_INT >= 34) {
+                val activeAttrs = currentPlatformAudioAttributes ?: defaultMediaAudioAttributes()
+                if (bitPerfectPreferred && device != null && isUsbDevice(device)) {
+                    if (appliedMixerDevice != null && (appliedMixerDevice != device || appliedMixerAudioAttributes != activeAttrs)) {
+                        clearMixerAttributes()
+                    }
+                    applyMixerAttributes(device, activeAttrs)
+                } else if (appliedMixerDevice != null) {
+                    clearMixerAttributes()
                 }
             }
 
@@ -560,6 +581,9 @@ private class HoshiAudioOutputProvider(
     override fun removeListener(listener: AudioOutputProvider.Listener) = delegate.removeListener(listener)
     
     override fun release() {
+        if (Build.VERSION.SDK_INT >= 34 && appliedMixerDevice != null) {
+            clearMixerAttributes()
+        }
         delegate.release()
         scope.cancel()
     }
@@ -572,11 +596,18 @@ private class HoshiAudioOutputProvider(
                device.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
     }
 
+    private fun defaultMediaAudioAttributes(): android.media.AudioAttributes {
+        return android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+    }
+
     @SuppressLint("NewApi")
     @RequiresApi(34)
     private fun applyMixerAttributes(
-        builder: AudioTrack.Builder,
-        device: AudioDeviceInfo
+        device: AudioDeviceInfo,
+        audioAttributes: android.media.AudioAttributes
     ) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val supportedAttributes = audioManager.getSupportedMixerAttributes(device)
@@ -586,18 +617,13 @@ private class HoshiAudioOutputProvider(
         }
 
         if (bitPerfectAttr != null) {
-            // [FIX-BUG2] AudioTrack.Builder has no setAudioMixerAttributes method.
-            // The correct API is AudioManager.setPreferredMixerAttributes which applies
-            // the bit-perfect configuration to the audio session for the given device.
             try {
-                val audioAttributes = android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
                 val success = audioManager.setPreferredMixerAttributes(
                     audioAttributes, device, bitPerfectAttr
                 )
                 if (success) {
+                    appliedMixerDevice = device
+                    appliedMixerAudioAttributes = audioAttributes
                     DiagLog.i("HoshiAudio", "Applied BIT_PERFECT MixerAttributes for ${device.productName}")
                 } else {
                     DiagLog.w("HoshiAudio", "setPreferredMixerAttributes returned false for ${device.productName}")
@@ -607,6 +633,22 @@ private class HoshiAudioOutputProvider(
             }
         } else {
             DiagLog.i("HoshiAudio", "No BIT_PERFECT mixer attribute supported for ${device.productName}")
+        }
+    }
+
+    @SuppressLint("NewApi")
+    @RequiresApi(34)
+    private fun clearMixerAttributes() {
+        val device = appliedMixerDevice ?: return
+        val attrs = appliedMixerAudioAttributes ?: defaultMediaAudioAttributes()
+        appliedMixerDevice = null
+        appliedMixerAudioAttributes = null
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audioManager.clearPreferredMixerAttributes(attrs, device)
+            DiagLog.i("HoshiAudio", "Cleared preferred MixerAttributes for ${device.productName}")
+        } catch (e: Exception) {
+            DiagLog.w("HoshiAudio", "clearPreferredMixerAttributes failed for ${device.productName}", e)
         }
     }
 }
