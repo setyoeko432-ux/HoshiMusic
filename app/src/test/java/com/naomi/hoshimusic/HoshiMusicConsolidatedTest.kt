@@ -466,6 +466,14 @@ class HoshiMusicConsolidatedTest {
         assertTrue(com.naomi.hoshimusic.data.lrc.LrcNormalizer.isCjk(0x20BB7))
     }
 
+    @Test
+    fun `furiganaTokens does not leak kana when token contains punctuation`() {
+        val tokens = HoshiRomanizer.furiganaTokens("あ！")
+        val joined = tokens.joinToString("") { it.romaji ?: it.surface }
+        assertTrue("Expected romaji 'a' in '$joined'", joined.contains("a"))
+        assertFalse("Kana 'あ' must not leak in '$joined'", joined.contains("あ"))
+    }
+
     // =========================================================================
     // SECTION 9: Formatters (from FormattersTest.kt)
     // =========================================================================

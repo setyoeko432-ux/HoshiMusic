@@ -3,6 +3,8 @@
 
 -keeppackagenames com.atilika.kuromoji.**
 -keep class com.atilika.kuromoji.** { *; }
+-keepdirectories com/atilika/kuromoji/**
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -dontwarn com.atilika.kuromoji.**
 
 -keep class org.jaudiotagger.** { *; }

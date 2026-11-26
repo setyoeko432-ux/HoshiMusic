@@ -15,7 +15,7 @@ object HoshiRomanizer {
     private const val TAG = "HoshiRomanizer"
 
     // [Fase 6] Versi engine untuk invalidasi cache
-    const val VERSION = 3
+    const val VERSION = 4
 
     private val WHITESPACE = Regex("\\s+")
 
@@ -421,10 +421,19 @@ object HoshiRomanizer {
                 }
                 
                 if (reading != null) lastReading = reading
-                
-                ReadingToken(token.surface, reading, reading?.let { katakanaToRomaji(it) })
+
+                val romaji = reading?.let { katakanaToRomaji(it) }
+                    ?: if (containsKana(token.surface)) {
+                        katakanaToRomaji(katakanaOf(token.surface)).takeIf { it.isNotBlank() }
+                    } else null
+
+                ReadingToken(token.surface, reading, romaji)
             }
         }.getOrDefault(emptyList())
+    }
+
+    private fun containsKana(text: String): Boolean = text.any {
+        it.code in 0x3041..0x309F || it.code in 0x30A1..0x30FA
     }
 
     private fun isAllKana(text: String): Boolean = text.isNotEmpty() && text.all {
