@@ -269,18 +269,10 @@ internal fun FullscreenLyricsView(
                             }
 
                             if (isActive && line.tokens.isNotEmpty()) {
-                                val annotatedText = buildLyricAnnotatedString(
+                                KaraokeLyricLineText(
                                     line = line,
-                                    currentPositionMs = smoothPositionState.value,
-                                    activeColor = Color.White,
-                                    inactiveColor = Color.White.copy(alpha = 0.45f),
+                                    smoothPositionState = smoothPositionState,
                                     displayMode = displayMode
-                                )
-                                Text(
-                                    text = annotatedText,
-                                    style = MaterialTheme.typography.headlineMedium.copy(fontSize = 22.sp, fontWeight = FontWeight.ExtraBold),
-                                    textAlign = TextAlign.Start,
-                                    lineHeight = 30.sp
                                 )
                             } else {
                                 Text(
@@ -317,6 +309,27 @@ internal fun FullscreenLyricsView(
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+@Composable
+private fun KaraokeLyricLineText(
+    line: LyricLine,
+    smoothPositionState: State<Long>,
+    displayMode: LyricDisplayMode
+) {
+    val annotatedText = buildLyricAnnotatedString(
+        line = line,
+        currentPositionMs = smoothPositionState.value,
+        activeColor = Color.White,
+        inactiveColor = Color.White.copy(alpha = 0.45f),
+        displayMode = displayMode
+    )
+    Text(
+        text = annotatedText,
+        style = MaterialTheme.typography.headlineMedium.copy(fontSize = 22.sp, fontWeight = FontWeight.ExtraBold),
+        textAlign = TextAlign.Start,
+        lineHeight = 30.sp
+    )
 }
 
 @Composable

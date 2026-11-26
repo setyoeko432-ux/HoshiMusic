@@ -1280,6 +1280,7 @@ void DspEngine::flush() {
     sDecorrMidA.reset(); sDecorrMidB.reset();
     bassExtractLpf.reset(); bassHarmonicHpf_gen.reset(); bassHarmonicLpf_gen.reset(); bassHarmonicHpf_final.reset();
     deEsserHpf.reset(); deEsserLpf.reset(); deEsserNotch.reset();
+    curDeEsserGainDb = 0.0f;
     for (int e = 0; e < 3; ++e) { essBand[e].reset(); essEnv[e] = 0.0f; }
     curNotchFc = 7500.0f;
     curWarmBoostDb = 0.0f;
@@ -1303,6 +1304,9 @@ void DspEngine::flush() {
     }
     satLowLpfL.reset(); satLowLpfR.reset();
     erHpfL.reset(); erHpfR.reset();
+    kShelfL.reset(); kShelfR.reset();
+    kHpfL.reset(); kHpfR.reset();
+    unmaskDetBp.reset(); unmaskSidePeak.reset();
     envLow = 0.001f; envMid = 0.001f; envHigh = 0.001f;
     transFastM = 0.0f; transSlowM = 0.0f;
     transFastS = 0.0f; transSlowS = 0.0f;

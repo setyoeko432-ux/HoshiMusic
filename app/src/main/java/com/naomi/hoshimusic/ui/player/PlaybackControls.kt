@@ -46,34 +46,14 @@ internal fun SeekSection(
     val playbackSpeedFlow = remember(viewModel) { viewModel.uiState.map { it.playbackSpeed }.distinctUntilChanged() }
     val playbackSpeed by playbackSpeedFlow.collectAsStateWithLifecycle(1f)
     
-    val position by rememberSmoothPosition(rawPosition, isPlaying, playbackSpeed)
-    
-    var draggedPosition by remember { mutableFloatStateOf(-1f) }
-
-    // PERFORMANCE FIX: State Deferral Lambda to prevent parent recomposition
-    val sliderValueProvider = remember(position, draggedPosition) {
-        { (if (draggedPosition >= 0f) draggedPosition else position.toFloat()).coerceIn(0f, durationMs.coerceAtLeast(1L).toFloat()) }
-    }
-
-    val visiblePosition = if (draggedPosition >= 0f) draggedPosition.toLong() else position
+    val smoothPositionState = rememberSmoothPosition(rawPosition, isPlaying, playbackSpeed)
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-        Slider(
-            value = sliderValueProvider(),
-            onValueChange = { draggedPosition = it },
-            onValueChangeFinished = {
-                if (draggedPosition >= 0f) onSeek(draggedPosition.toLong())
-                draggedPosition = -1f
-            },
-            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-            modifier = Modifier.fillMaxWidth(),
-            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.2f))
+        SeekSliderAndDuration(
+            smoothPositionState = smoothPositionState,
+            durationMs = durationMs,
+            onSeek = onSeek
         )
-        Row(Modifier.fillMaxWidth()) {
-            Text(text = formatDuration(visiblePosition), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
-            Spacer(Modifier.weight(1f))
-            Text(text = formatDuration(durationMs), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
-        }
         Spacer(Modifier.height(20.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onToggleShuffle) { Icon(Icons.Rounded.Shuffle, null, tint = if (shuffleEnabled) Color.White else Color.White.copy(alpha = 0.3f)) }
@@ -83,6 +63,67 @@ internal fun SeekSection(
             IconButton(onClick = onCycleRepeat) { Icon(if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (repeatMode != Player.REPEAT_MODE_OFF) Color.White else Color.White.copy(alpha = 0.3f)) }
         }
     }
+}
+
+@Composable
+private fun SeekSliderAndDuration(
+    smoothPositionState: State<Long>,
+    durationMs: Long,
+    onSeek: (Long) -> Unit
+) {
+    var draggedPosition by remember { mutableFloatStateOf(-1f) }
+    val safeDuration = durationMs.coerceAtLeast(1L).toFloat()
+
+    SeekSliderOnly(
+        smoothPositionState = smoothPositionState,
+        draggedPosition = draggedPosition,
+        safeDuration = safeDuration,
+        onValueChange = { draggedPosition = it },
+        onValueChangeFinished = {
+            if (draggedPosition >= 0f) onSeek(draggedPosition.toLong())
+            draggedPosition = -1f
+        }
+    )
+
+    val displayedSecond by remember(smoothPositionState) {
+        derivedStateOf {
+            val ms = if (draggedPosition >= 0f) draggedPosition.toLong() else smoothPositionState.value
+            ms / 1000L
+        }
+    }
+    Row(Modifier.fillMaxWidth()) {
+        Text(
+            text = formatDuration(displayedSecond * 1000L),
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.7f)
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = formatDuration(durationMs),
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+private fun SeekSliderOnly(
+    smoothPositionState: State<Long>,
+    draggedPosition: Float,
+    safeDuration: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit
+) {
+    val sliderValue = (if (draggedPosition >= 0f) draggedPosition else smoothPositionState.value.toFloat())
+        .coerceIn(0f, safeDuration)
+    Slider(
+        value = sliderValue,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        valueRange = 0f..safeDuration,
+        modifier = Modifier.fillMaxWidth(),
+        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.2f))
+    )
 }
 
 @Composable

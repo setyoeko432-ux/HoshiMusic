@@ -455,12 +455,16 @@ private class HoshiAudioOutputProvider(
         }
     }
 
+    @Volatile
     private var lastPreferredDevice: AudioDeviceInfo? = null
 
     @Volatile
     private var currentPlatformAudioAttributes: android.media.AudioAttributes? = null
 
+    @Volatile
     private var appliedMixerDevice: AudioDeviceInfo? = null
+
+    @Volatile
     private var appliedMixerAudioAttributes: android.media.AudioAttributes? = null
 
     fun updateAudioAttributes(audioAttributes: android.media.AudioAttributes) {

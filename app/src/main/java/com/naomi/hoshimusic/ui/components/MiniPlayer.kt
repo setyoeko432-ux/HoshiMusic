@@ -307,16 +307,16 @@ internal fun CompactMiniSlider(
 ) {
     val durationFlow = remember(viewModel) { viewModel.uiState.map { it.durationMs }.distinctUntilChanged() }
     val durationMs by durationFlow.collectAsStateWithLifecycle(0L)
-    val rawPosition by viewModel.positionMsFlow.collectAsStateWithLifecycle()
+    val rawPositionState = viewModel.positionMsFlow.collectAsStateWithLifecycle()
     val isPlayingFlow = remember(viewModel) { viewModel.uiState.map { it.isPlaying }.distinctUntilChanged() }
     val isPlaying by isPlayingFlow.collectAsStateWithLifecycle(false)
     val speedFlow = remember(viewModel) { viewModel.uiState.map { it.playbackSpeed }.distinctUntilChanged() }
     val speed by speedFlow.collectAsStateWithLifecycle(1f)
     
-    val smoothPosition by rememberSmoothPosition(rawPosition, isPlaying, speed)
+    val smoothPositionState = rememberSmoothPosition(rawPositionState, isPlaying, speed)
     
     var draggedPosition by remember { mutableFloatStateOf(-1f) }
-    val visiblePosition = if (draggedPosition >= 0f) draggedPosition.toLong() else smoothPosition
+    val visiblePosition = if (draggedPosition >= 0f) draggedPosition.toLong() else smoothPositionState.value
 
     Slider(
         value = visiblePosition.toFloat().coerceIn(0f, durationMs.coerceAtLeast(1L).toFloat()),
@@ -347,20 +347,19 @@ internal fun IsolatedMiniProgress(
     val speedFlow = remember(viewModel) { viewModel.uiState.map { it.playbackSpeed }.distinctUntilChanged() }
     val speed by speedFlow.collectAsStateWithLifecycle(1f)
 
-    val smoothPosition by rememberSmoothPosition(rawPosition, isPlaying, speed)
-
-    val progress = remember(smoothPosition, duration) {
-        if (duration > 0L) (smoothPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
-    }
+    val smoothPositionState = rememberSmoothPosition(rawPosition, isPlaying, speed)
 
     Spacer(
         modifier = modifier.drawWithCache {
-            val progressWidth = size.width * progress
+            val barColor = Color.White.copy(alpha = 0.9f)
             onDrawBehind {
+                val progress = if (duration > 0L) {
+                    (smoothPositionState.value.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                } else 0f
                 drawRect(
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = barColor,
                     topLeft = Offset.Zero,
-                    size = Size(progressWidth, size.height)
+                    size = Size(size.width * progress, size.height)
                 )
             }
         }

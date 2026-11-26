@@ -686,7 +686,9 @@ class HoshiDspProcessor : BaseAudioProcessor() {
                 (baseParams[DspPresets.IDX_CROSSFEED] * crossfeedAdj).coerceIn(0f, 1.5f)
         }
         engine.setParams(spatialParams)
-        ensureAdaptiveEnabledForParams(spatialParams)
+        if (enabled) {
+            ensureAdaptiveEnabledForParams(spatialParams)
+        }
     }
 
     /** Terapkan konfigurasi PEQ secara atomik (triple-buffer di sisi native). */

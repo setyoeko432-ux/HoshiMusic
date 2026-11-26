@@ -155,6 +155,7 @@ class MusicPlaybackService : MediaSessionService() {
         // benar-benar baru, lengkap dengan native handle yang bersih.
         // Rantai yang sama tidak akan pulih dari keadaan beku.
         dspProcessor?.resetFreezeState()
+        dspProcessor?.release()
         dspProcessor = null
         initializePlayer(forceRecreate = true)
     }
