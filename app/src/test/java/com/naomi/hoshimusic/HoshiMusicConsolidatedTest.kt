@@ -474,6 +474,33 @@ class HoshiMusicConsolidatedTest {
         assertFalse("Kana 'あ' must not leak in '$joined'", joined.contains("あ"))
     }
 
+    @Test
+    fun `custom user dictionary resolves poetic words, slang, and song titles accurately`() {
+        val utakata = HoshiRomanizer.romanize("泡沫", RomanizationLanguage.JA).romanized
+        assertEquals("utakata", utakata)
+
+        val oshi = HoshiRomanizer.romanize("推し活", RomanizationLanguage.JA).romanized
+        assertEquals("oshikatsu", oshi)
+
+        val emoi = HoshiRomanizer.romanize("エモい", RomanizationLanguage.JA).romanized
+        assertEquals("emoi", emoi)
+
+        val title = HoshiRomanizer.romanize("君の名は", RomanizationLanguage.JA).romanized
+        assertEquals("kimi no na wa", title)
+
+        val gurenge = HoshiRomanizer.romanize("紅蓮華", RomanizationLanguage.JA).romanized
+        assertEquals("gurenge", gurenge)
+    }
+
+    @Test
+    fun `furiganaTokens does not leak sokuon across token boundaries or at end of word`() {
+        val matte = HoshiRomanizer.furiganaTokens("待って").joinToString("") { it.romaji.orEmpty() }
+        assertEquals("matte", matte)
+
+        val ah = HoshiRomanizer.furiganaTokens("あっ！").joinToString("") { it.romaji ?: it.surface }
+        assertFalse("Sokuon 'っ' must not leak in '$ah'", ah.contains('っ') || ah.contains('ッ'))
+    }
+
     // =========================================================================
     // SECTION 9: Formatters (from FormattersTest.kt)
     // =========================================================================

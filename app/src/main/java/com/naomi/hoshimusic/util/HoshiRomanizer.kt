@@ -15,7 +15,7 @@ object HoshiRomanizer {
     private const val TAG = "HoshiRomanizer"
 
     // [Fase 6] Versi engine untuk invalidasi cache
-    const val VERSION = 4
+    const val VERSION = 5
 
     private val WHITESPACE = Regex("\\s+")
 
@@ -37,9 +37,16 @@ object HoshiRomanizer {
     // [1c] Lazy Hangul-Latin transliterator
     private val hangulLatinTransliterator by lazy { safeGetTransliterator("Hangul-Latin") }
 
-    // Kamus kuromoji tokenize itu mahal.
+    // Kamus kuromoji tokenize itu mahal; muat juga user dictionary kustom bila tersedia.
     private val kuromojiTokenizer by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        runCatching { Tokenizer() }
+        runCatching {
+            val stream = HoshiRomanizer::class.java.getResourceAsStream("/hoshi_userdict.csv")
+            if (stream != null) {
+                stream.use { Tokenizer.Builder().userDictionary(it).build() }
+            } else {
+                Tokenizer()
+            }
+        }
             .onFailure { Log.w(TAG, "Kamus kuromoji gagal dimuat — romanisasi JA dinonaktifkan", it) }
             .getOrNull()
     }
@@ -407,10 +414,10 @@ object HoshiRomanizer {
             var lastReading: String? = null
             // [4a] Lock untuk keamanan concurrent access (Audit A2)
             val tokens = synchronized(tokenizerLock) { tokenizer.tokenize(normalized) }
-            tokens.map { token ->
+            val resolvedReadings = tokens.map { token ->
                 var reading = token.pronunciation?.takeIf { it.isNotBlank() && it != "*" }
                     ?: token.reading?.takeIf { it.isNotBlank() && it != "*" }
-                
+
                 // [2a/2b] Handle iteration marks post-tokenize
                 if (reading == null) {
                     reading = handleIterationMarks(token.surface, lastReading)
@@ -419,10 +426,28 @@ object HoshiRomanizer {
                 if (reading == null && isAllKana(token.surface)) {
                     reading = katakanaOf(token.surface)
                 }
-                
-                if (reading != null) lastReading = reading
 
-                val romaji = reading?.let { katakanaToRomaji(it) }
+                if (reading != null) lastReading = reading
+                reading
+            }
+
+            tokens.mapIndexed { idx, token ->
+                val reading = resolvedReadings[idx]
+                val effectiveReading = if (reading != null && (reading.endsWith('ッ') || reading.endsWith('っ'))) {
+                    val nextKana = resolvedReadings.getOrNull(idx + 1)
+                    val nextRomaji = nextKana?.let { kanaRomajiAt(it, 0)?.first }
+                    val cons = nextRomaji?.firstOrNull { it !in "aiueo" }
+                    if (cons != null) {
+                        val doubled = if (cons == 'c') 't' else cons
+                        reading.dropLast(1) + doubled
+                    } else {
+                        reading
+                    }
+                } else {
+                    reading
+                }
+
+                val romaji = effectiveReading?.let { katakanaToRomaji(it) }
                     ?: if (containsKana(token.surface)) {
                         katakanaToRomaji(katakanaOf(token.surface)).takeIf { it.isNotBlank() }
                     } else null
@@ -518,7 +543,7 @@ object HoshiRomanizer {
                     val next = kanaRomajiAt(normalized, i + 1)?.first.orEmpty()
                     when (val cons = next.firstOrNull { it !in "aiueo" }) {
                         'c' -> sb.append('t')
-                        null -> sb.append(c)
+                        null -> sb.append(if (sb.isEmpty()) c else '\'')
                         else -> sb.append(cons)
                     }
                 }
