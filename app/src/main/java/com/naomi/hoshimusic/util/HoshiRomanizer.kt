@@ -167,17 +167,14 @@ object HoshiRomanizer {
             textLower.contains("piano version") ||
             textLower.contains("instrumental version")
 
-        if (isInstrumentalKeyword) return RomanizationLanguage.INSTRUMENTAL
-
         var hasKana = false
         var hasHangul = false
         var hasHan = false
         var hasLatin = false
+        var hasOtherScript = false
         
         var kanaCount = 0
         var hangulCount = 0
-        var hanCount = 0
-        var latinCount = 0
 
         // Iterasi per CODE POINT (bukan per Char): Hanzi astral (Extension B+, mis. 𠮷)
         // tersusun dari surrogate pair dan akan terlewat bila diiterasi sebagai Char.
@@ -216,7 +213,6 @@ object HoshiRomanizer {
                 Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_D,
                 Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS -> {
                     hasHan = true
-                    hanCount++
                 }
                 Character.UnicodeBlock.BASIC_LATIN,
                 Character.UnicodeBlock.LATIN_1_SUPPLEMENT,
@@ -225,7 +221,6 @@ object HoshiRomanizer {
                 Character.UnicodeBlock.LATIN_EXTENDED_ADDITIONAL -> {
                     if (Character.isLetter(codePoint)) {
                         hasLatin = true
-                        latinCount++
                     }
                 }
                 Character.UnicodeBlock.CYRILLIC,
@@ -235,7 +230,7 @@ object HoshiRomanizer {
                 Character.UnicodeBlock.DEVANAGARI -> {
                     // [7a] Tandai sebagai script internasional lain untuk UNKNOWN (non-ambiguous Han)
                     if (Character.isLetter(codePoint)) {
-                        latinCount++ // Ikut dihitung sebagai non-Han
+                        hasOtherScript = true
                     }
                 }
                 else -> Unit
@@ -244,6 +239,9 @@ object HoshiRomanizer {
 
         // 2. Klasifikasi Berdasarkan Bobot (Lyrics-First Heuristic)
         return when {
+            // Keyword instrumental tidak boleh menimpa judul/lirik yang jelas punya aksara CJK/Kana/Hangul
+            isInstrumentalKeyword && !hasKana && !hasHangul && !hasHan -> RomanizationLanguage.INSTRUMENTAL
+
             // Kana adalah ciri mutlak bahasa Jepang
             hasKana -> RomanizationLanguage.JA
             
@@ -255,7 +253,7 @@ object HoshiRomanizer {
             
             // Hanzi/Kanji murni tanpa Kana/Hangul: Cek proporsi lirik jika ada
             hasHan -> {
-                if (lyrics != null && kanaCount == 0 && hangulCount == 0) {
+                if (lyrics != null && kanaCount == 0 && hangulCount == 0 && !hasOtherScript) {
                     // Dalam lirik panjang, jika ada Hanzi tapi 0 Kana/Hangul, dipastikan Mandarin
                     RomanizationLanguage.ZH
                 } else {
@@ -265,7 +263,7 @@ object HoshiRomanizer {
             
             // Jika hanya Latin, cek apakah ini kemungkinan instrumental (durasi panjang lirik kosong)
             // dihandle oleh caller atau detect instrumental di atas.
-            hasLatin -> {
+            hasLatin && !hasOtherScript -> {
                 if (ENGLISH_MARKERS.containsMatchIn(combinedText)) RomanizationLanguage.EN
                 else RomanizationLanguage.LATIN
             }
@@ -293,7 +291,6 @@ object HoshiRomanizer {
         return detectLanguage("", cleanSample)
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     // [4b] Hapus synchronized global agar cache-hit tidak memblokir thread lain (Audit R10)
     fun romanize(text: String, songLanguageHint: RomanizationLanguage? = null): RomanizationResult {
         if (text.isBlank()) return RomanizationResult(text, null, RomanizationLanguage.UNKNOWN)
@@ -334,7 +331,6 @@ object HoshiRomanizer {
         return RomanizationResult(text, final, effective).also { resultCache[cacheKey] = it }
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     private fun romanizeJapanese(text: String): String? = runCatching {
         val tokenizer = kuromojiTokenizer ?: return@runCatching null
 
@@ -343,7 +339,9 @@ object HoshiRomanizer {
             // [4a] Lock hanya pada bagian tokenize yang kritis
             val tokens = synchronized(tokenizerLock) { tokenizer.tokenize(text) }
             tokens.forEach { token ->
-                var reading = token.pronunciation ?: token.reading ?: token.surface
+                var reading = token.pronunciation?.takeIf { it.isNotBlank() && it != "*" }
+                    ?: token.reading?.takeIf { it.isNotBlank() && it != "*" }
+                    ?: token.surface
                 
                 // [2a/2b] Handle iteration marks post-tokenize
                 if (reading == "*" || reading == token.surface) {
@@ -368,9 +366,9 @@ object HoshiRomanizer {
             .replace("ッ ", "ッ")
             .replace("っ ", "っ")
 
-        // ICU Any-Latin will transliterate Katakana to Alphabet Romaji
-        genericTransliterator?.transliterate(fixedKatakana)
-            ?: katakanaToRomaji(fixedKatakana).takeIf { it.isNotBlank() }
+        // Gunakan katakanaToRomaji() secara konsisten agar judul, artis, lirik,
+        // dan perangkat API 26-28 menghasilkan romaji seragam tanpa perbedaan ICU.
+        katakanaToRomaji(fixedKatakana).takeIf { it.isNotBlank() }
     }.getOrNull()
 
     /**
@@ -410,7 +408,8 @@ object HoshiRomanizer {
             // [4a] Lock untuk keamanan concurrent access (Audit A2)
             val tokens = synchronized(tokenizerLock) { tokenizer.tokenize(normalized) }
             tokens.map { token ->
-                var reading = token.reading?.takeIf { it.isNotBlank() && it != "*" }
+                var reading = token.pronunciation?.takeIf { it.isNotBlank() && it != "*" }
+                    ?: token.reading?.takeIf { it.isNotBlank() && it != "*" }
                 
                 // [2a/2b] Handle iteration marks post-tokenize
                 if (reading == null) {

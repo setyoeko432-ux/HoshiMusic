@@ -57,14 +57,18 @@ internal object LrcNormalizer {
         return sb.toString() to count
     }
 
-    fun isCjk(c: Char): Boolean {
-        val code = c.code
+    fun isCjk(c: Char): Boolean = isCjk(c.code)
+
+    fun isCjk(code: Int): Boolean {
         // [8e] CJK Range Parity: Samakan dengan HoshiRomanizer (termasuk Extension A-D)
         return (code in 0x3040..0x309F) || // Hiragana
                 (code in 0x30A0..0x30FF) || // Katakana
                 (code in 0x3000..0x303F) || // Tanda baca CJK (、。「」『』)
                 (code in 0x4E00..0x9FFF) || // Kanji
                 (code in 0x3400..0x4DBF) || // Kanji Ext A
+                (code in 0x20000..0x2A6DF) || // Kanji Ext B
+                (code in 0x2A700..0x2B73F) || // Kanji Ext C
+                (code in 0x2B740..0x2B81F) || // Kanji Ext D
                 (code in 0xAC00..0xD7AF) || // Hangul Syllables
                 (code in 0x1100..0x11FF) || // Hangul Jamo
                 (code in 0xFF00..0xFFEF)    // Fullwidth CJK & Latin

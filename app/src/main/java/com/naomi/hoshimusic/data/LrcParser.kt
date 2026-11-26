@@ -161,8 +161,8 @@ object LrcParser {
                         val nextText = nextEntry?.second ?: ""
 
                         val endsWithHyphen = text.endsWith("-") || text.endsWith("(")
-                        val isJapaneseOrCjk = text.lastOrNull()?.let { LrcNormalizer.isCjk(it) } == true
-                        val nextIsCjk = nextText.firstOrNull()?.let { LrcNormalizer.isCjk(it) } == true
+                        val isJapaneseOrCjk = text.isNotEmpty() && LrcNormalizer.isCjk(Character.codePointBefore(text, text.length))
+                        val nextIsCjk = nextText.isNotEmpty() && LrcNormalizer.isCjk(Character.codePointAt(nextText, 0))
 
                         val joinMidWord = nextEntry != null &&
                                 raw.lastOrNull()?.isWhitespace() != true &&

@@ -259,7 +259,6 @@ object MediaMapper {
      * dan jangan deteksi ulang lalu menimpanya.
      * [C10]: detection now runs on mojibake-repaired text.
      */
-    @android.annotation.SuppressLint("NewApi")
     fun processMetadata(entity: SongEntity): SongEntity {
         val repaired = repairTexts(entity)
 

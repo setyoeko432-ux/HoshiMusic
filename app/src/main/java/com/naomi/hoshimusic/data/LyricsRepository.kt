@@ -208,7 +208,6 @@ class LyricsRepository(private val context: Context) {
         return lines
     }
 
-    @android.annotation.SuppressLint("NewApi")
     private fun applyRomanizationRealTime(result: LyricsResult, lang: RomanizationLanguage): LyricsResult {
         // Japanese uses Kuromoji plus the pure-JVM kana converter and is
         // available on minSdk 26. Chinese/Korean still require Android ICU.
@@ -224,12 +223,21 @@ class LyricsRepository(private val context: Context) {
 
             // [V18]: Sanitize mark before romanization engine
             val cleanForRomanizer = rawText.replace("\uE000", "").trim()
+            val lineLang = HoshiRomanizer.detectLanguage(cleanForRomanizer)
 
-            // [Fase 3] Pilih strategi berdasarkan bahasa
-            if (lang == RomanizationLanguage.JA) {
-                applyJaRomanization(line, cleanForRomanizer)
-            } else {
-                applyGenericRomanization(line, cleanForRomanizer, lang)
+            // Jangan paksa baris Latin/Inggris/Unknown masuk ke tokenizer Kuromoji
+            when {
+                lineLang == RomanizationLanguage.LATIN ||
+                lineLang == RomanizationLanguage.EN ||
+                lineLang == RomanizationLanguage.UNKNOWN ||
+                lineLang == RomanizationLanguage.INSTRUMENTAL -> line
+                lang == RomanizationLanguage.JA &&
+                    (lineLang == RomanizationLanguage.JA || lineLang == RomanizationLanguage.HAN_AMBIGUOUS) ->
+                    applyJaRomanization(line, cleanForRomanizer)
+                else -> {
+                    val effectiveLineLang = if (lineLang == RomanizationLanguage.HAN_AMBIGUOUS) lang else lineLang
+                    applyGenericRomanization(line, cleanForRomanizer, effectiveLineLang)
+                }
             }
         })
     }
@@ -238,19 +246,24 @@ class LyricsRepository(private val context: Context) {
         val morphemes = HoshiRomanizer.furiganaTokens(rawText)
         if (morphemes.isEmpty()) return line
 
+        val normalizedText = HoshiRomanizer.normalizeFullWidth(rawText)
+
         // [3b] Penyatuan mesin JA: derive romanizedText dari morfem yang sama
-        val lineRomanized = morphemes.joinToString(" ") { it.romaji ?: it.surface }.trim()
-        val lineHasRomaji = lineRomanized != rawText
+        val lineRomanized = morphemes
+            .joinToString(" ") { it.romaji ?: it.surface }
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        val lineHasRomaji = lineRomanized.isNotEmpty() && lineRomanized != normalizedText
 
         if (line.tokens.isEmpty()) {
             return line.copy(romanizedText = if (lineHasRomaji) lineRomanized else null)
         }
 
-        // [3a] Algoritma Alignment Offset
+        // [3a] Algoritma Alignment Offset (berbasis normalizedText agar selaras dengan m.surface dari furiganaTokens)
         val morphemeRanges = mutableListOf<Pair<IntRange, String>>()
         var mOffset = 0
         morphemes.forEach { m ->
-            val start = rawText.indexOf(m.surface, mOffset)
+            val start = normalizedText.indexOf(m.surface, mOffset)
             if (start != -1) {
                 val end = start + m.surface.length
                 morphemeRanges.add(IntRange(start, end - 1) to (m.romaji ?: m.surface))
@@ -260,8 +273,9 @@ class LyricsRepository(private val context: Context) {
 
         var tOffset = 0
         val updatedTokens = line.tokens.map { token ->
+            val normalizedTokenLen = HoshiRomanizer.normalizeFullWidth(token.text).length
             val tStart = tOffset
-            val tEnd = tOffset + token.text.length
+            val tEnd = tOffset + normalizedTokenLen
             val tRange = IntRange(tStart, tEnd - 1)
             tOffset = tEnd
 

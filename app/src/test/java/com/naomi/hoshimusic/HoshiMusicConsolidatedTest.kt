@@ -434,6 +434,38 @@ class HoshiMusicConsolidatedTest {
         assertTrue(tokens.joinToString("") { it.romaji.orEmpty() }.contains("hito"))
     }
 
+    @Test
+    fun `furiganaTokens uses pronunciation for particles wa and e`() {
+        val waTokens = HoshiRomanizer.furiganaTokens("私は行く")
+        assertEquals(listOf("watashi", "wa", "iku"), waTokens.map { it.romaji })
+
+        val eTokens = HoshiRomanizer.furiganaTokens("海へ")
+        assertEquals(listOf("umi", "e"), eTokens.map { it.romaji })
+
+        val helloTokens = HoshiRomanizer.furiganaTokens("こんにちは")
+        assertEquals("konnichiwa", helloTokens.joinToString("") { it.romaji.orEmpty() })
+    }
+
+    @Test
+    fun `japanese title with piano version is still detected as JA and romanized`() {
+        assertEquals(RomanizationLanguage.JA, HoshiRomanizer.detectLanguage("夜に駆ける (Piano Version)", null))
+        val res = HoshiRomanizer.romanize("夜に駆ける (Piano Version)", RomanizationLanguage.JA)
+        assertNotNull(res.romanized)
+        assertTrue("Unexpected romanized output: ${res.romanized}", res.romanized!!.contains("Piano", ignoreCase = true))
+        assertTrue("Unexpected romanized output: ${res.romanized}", res.romanized!!.contains("yoru", ignoreCase = true))
+    }
+
+    @Test
+    fun `non-latin international scripts are detected as UNKNOWN instead of LATIN`() {
+        assertEquals(RomanizationLanguage.UNKNOWN, HoshiRomanizer.detectLanguage("Привет мир", null))
+        assertEquals(RomanizationLanguage.UNKNOWN, HoshiRomanizer.detectLanguage("Ελληνικά", null))
+    }
+
+    @Test
+    fun `lrc normalizer isCjk supports astral han extension B`() {
+        assertTrue(com.naomi.hoshimusic.data.lrc.LrcNormalizer.isCjk(0x20BB7))
+    }
+
     // =========================================================================
     // SECTION 9: Formatters (from FormattersTest.kt)
     // =========================================================================
