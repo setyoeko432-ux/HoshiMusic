@@ -7,7 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.runtime.Composable
@@ -41,14 +41,14 @@ internal fun SongList(
         state = listState,
         contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
     ) {
-        items(songs, key = { "s_${it.id}_${it.stableId}" }, contentType = { "song" }) { song ->
+        itemsIndexed(songs, key = { _, it -> "s_${it.id}_${it.stableId}" }, contentType = { _, _ -> "song" }) { index, song ->
             SongRow(
                 song = song,
                 isFavorite = song.stableId in favoriteIds,
                 isPlaying = song.stableId == currentMediaId,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
-                onClick = { onPlaySongs(songs, songs.indexOf(song)) },
+                onClick = { onPlaySongs(songs, index) },
                 onLongPress = { onOpenActions(song) },
                 onToggleFavorite = { onToggleFavorite(song.stableId) },
                 onSwipeQueue = { onAddToQueue(song) },

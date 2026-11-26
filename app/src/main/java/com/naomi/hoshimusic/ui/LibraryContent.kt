@@ -198,17 +198,15 @@ internal fun LibraryContent(
                                         )
                                     }
                                     LibraryFilter.Albums -> {
-                                        val albums = remember(libraryState.songs) { MusicGrouping.albumGroups(libraryState.songs) }
                                         GroupGrid(
-                                            groups = albums,
+                                            groups = libraryState.albumGroups,
                                             icon = Icons.Rounded.Album,
                                             onPlayGroup = { onPlaySongs(it.songs, 0) }
                                         )
                                     }
                                     LibraryFilter.Artists -> {
-                                        val artists = remember(libraryState.songs) { MusicGrouping.artistGroups(libraryState.songs) }
                                         GroupList(
-                                            groups = artists,
+                                            groups = libraryState.artistGroups,
                                             icon = Icons.Rounded.Person,
                                             emptyTitle = "Tidak ada artis",
                                             onPlayGroup = { onPlaySongs(it.songs, 0) }
@@ -229,19 +227,15 @@ internal fun LibraryContent(
                                         )
                                     }
                                     LibraryFilter.Genres -> {
-                                        val genres = remember(libraryState.songs) { MusicGrouping.genreGroups(libraryState.songs) }
                                         GroupGrid(
-                                            groups = genres,
+                                            groups = libraryState.genreGroups,
                                             icon = Icons.Rounded.GraphicEq,
                                             onPlayGroup = { onPlaySongs(it.songs, 0) }
                                         )
                                     }
                                     LibraryFilter.Folders -> {
-                                        val folders = remember(libraryState.songs, libraryState.hiddenFolders) {
-                                            MusicGrouping.folderGroups(libraryState.songs.filter { it.folder !in libraryState.hiddenFolders })
-                                        }
                                         FolderScreen(
-                                            groups = folders,
+                                            groups = libraryState.folderGroups,
                                             hiddenFolders = libraryState.hiddenFolders,
                                             onPlayGroup = { onPlaySongs(it.songs, 0) },
                                             onToggleHiddenFolder = onToggleHiddenFolder
@@ -249,7 +243,7 @@ internal fun LibraryContent(
                                     }
                                     LibraryFilter.Favorites -> {
                                         SongList(
-                                            songs = libraryState.songs.filter { it.stableId in libraryState.favoriteIds },
+                                            songs = libraryState.favoriteSongs,
                                             favoriteIds = libraryState.favoriteIds,
                                             currentMediaId = playbackMediaId,
                                             sharedTransitionScope = sharedTransitionScope,

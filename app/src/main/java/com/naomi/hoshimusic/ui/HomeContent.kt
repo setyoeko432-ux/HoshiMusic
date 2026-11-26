@@ -58,49 +58,11 @@ internal fun HomeContent(
     onToggleFavorite: (String) -> Unit,
     onOpenLibrary: (() -> Unit)? = null,
 ) {
-    val songsById by remember(libraryState.songs) {
-        derivedStateOf { libraryState.songs.associateBy { it.stableId } }
-    }
-
-    val recentlyPlayed by remember(libraryState.playStats) {
-        derivedStateOf {
-            libraryState.playStats.entries
-                .filter { it.value.lastPlayedAtMs > 0 }
-                .sortedByDescending { it.value.lastPlayedAtMs }
-                .take(10)
-                .mapNotNull { songsById[it.key] }
-        }
-    }
-
-    val frequentlyPlayed by remember(libraryState.playStats) {
-        derivedStateOf {
-            libraryState.playStats.entries
-                .filter { it.value.playCount > 0 }
-                .sortedByDescending { it.value.playCount }
-                .take(5)
-                .mapNotNull { songsById[it.key] }
-        }
-    }
-
-    val carouselSongs by remember(libraryState.songs) {
-        derivedStateOf {
-            if (libraryState.songs.isEmpty()) emptyList()
-            else {
-                libraryState.songs
-                    .groupBy { it.album.ifBlank { it.title } }
-                    .map { it.value.first() }
-                    .take(10)
-            }
-        }
-    }
-
-    val recentlyAdded by remember(libraryState.songs) {
-        derivedStateOf {
-            libraryState.songs
-                .sortedByDescending { it.dateAddedMs }
-                .take(10)
-        }
-    }
+    val songsById = libraryState.songsById
+    val recentlyPlayed = libraryState.recentlyPlayed
+    val frequentlyPlayed = libraryState.frequentlyPlayed
+    val carouselSongs = libraryState.carouselSongs
+    val recentlyAdded = libraryState.recentlyAdded
 
     LazyColumn(
         modifier = Modifier

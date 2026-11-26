@@ -15,6 +15,8 @@ import com.naomi.hoshimusic.data.PlaylistFileRepository
 import com.naomi.hoshimusic.data.SavedQueue
 import com.naomi.hoshimusic.data.Song
 import com.naomi.hoshimusic.data.UserPreferences
+import com.naomi.hoshimusic.domain.MusicGroup
+import com.naomi.hoshimusic.domain.MusicGrouping
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -86,13 +88,41 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         )
     }
 
+    private data class DerivedLibraryLists(
+        val carouselSongs: List<Song> = emptyList(),
+        val recentlyAdded: List<Song> = emptyList(),
+        val albumGroups: List<MusicGroup> = emptyList(),
+        val artistGroups: List<MusicGroup> = emptyList(),
+        val genreGroups: List<MusicGroup> = emptyList(),
+        val songsById: Map<String, Song> = emptyMap(),
+    )
+
     // PERF: statistik hanya bergantung pada daftar lagu. Dipisah dari combine utama
     // agar peta O(n) ini TIDAK dihitung ulang pada setiap ketikan query pencarian.
     private val playStats = songs.map { list ->
         list.associate { it.stableId to PlayStat(it.playCount, it.lastPlayedAtMs) }
     }.flowOn(Dispatchers.Default)
 
-    val uiState = combine(core, persisted, playStats, notice) { active, saved, statsMap, activeNotice ->
+    // PERF: pengelompokan album/artis/genre/carousel hanya bergantung pada daftar lagu
+    // dan diproses di Dispatchers.Default agar Main thread tidak terblokir saat komposisi.
+    private val derivedCatalog = songs.map { list ->
+        if (list.isEmpty()) {
+            DerivedLibraryLists()
+        } else {
+            DerivedLibraryLists(
+                carouselSongs = list.groupBy { it.album.ifBlank { it.title } }
+                    .map { it.value.first() }
+                    .take(10),
+                recentlyAdded = list.sortedByDescending { it.dateAddedMs }.take(10),
+                albumGroups = MusicGrouping.albumGroups(list),
+                artistGroups = MusicGrouping.artistGroups(list),
+                genreGroups = MusicGrouping.genreGroups(list),
+                songsById = list.associateBy { it.stableId }
+            )
+        }
+    }.flowOn(Dispatchers.Default)
+
+    val uiState = combine(core, persisted, playStats, derivedCatalog, notice) { active, saved, statsMap, catalog, activeNotice ->
         var visibleSongs = active.songs.filterNot { it.folder in saved.hiddenFolders }
 
         val totalBeforeFilter = visibleSongs.size
@@ -111,6 +141,29 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 song.folder.contains(normalizedQuery, ignoreCase = true)
         }
 
+        val recentlyPlayed = statsMap.entries
+            .filter { it.value.lastPlayedAtMs > 0 }
+            .sortedByDescending { it.value.lastPlayedAtMs }
+            .take(10)
+            .mapNotNull { catalog.songsById[it.key] }
+
+        val frequentlyPlayed = statsMap.entries
+            .filter { it.value.playCount > 0 }
+            .sortedByDescending { it.value.playCount }
+            .take(5)
+            .mapNotNull { catalog.songsById[it.key] }
+
+        val folderGroups = MusicGrouping.folderGroups(
+            if (saved.hiddenFolders.isEmpty()) active.songs
+            else active.songs.filter { it.folder !in saved.hiddenFolders }
+        )
+
+        val favoriteSongs = if (saved.favoriteIds.isEmpty()) {
+            emptyList()
+        } else {
+            active.songs.filter { it.stableId in saved.favoriteIds }
+        }
+
         LibraryUiState(
             songs = active.songs,
             filteredSongs = filtered,
@@ -119,6 +172,16 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             playlists = saved.playlists,
             savedQueues = saved.savedQueues,
             playStats = statsMap,
+            songsById = catalog.songsById,
+            recentlyPlayed = recentlyPlayed,
+            frequentlyPlayed = frequentlyPlayed,
+            carouselSongs = catalog.carouselSongs,
+            recentlyAdded = catalog.recentlyAdded,
+            albumGroups = catalog.albumGroups,
+            artistGroups = catalog.artistGroups,
+            genreGroups = catalog.genreGroups,
+            folderGroups = folderGroups,
+            favoriteSongs = favoriteSongs,
             totalListeningTimeMs = saved.totalListeningTimeMs,
             filterShortTracks = saved.filterShortTracks,
             selectedMusicFolder = saved.musicFolderUri,

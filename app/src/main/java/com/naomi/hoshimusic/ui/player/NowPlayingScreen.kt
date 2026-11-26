@@ -136,13 +136,14 @@ internal fun NowPlayingScreen(
         }
 
         val context = LocalContext.current
-        val artworkRequest = remember(state.artworkUri, shouldUseDualPane) {
+        val artworkRequest = remember(state.artworkUri) {
             ImageRequest.Builder(context)
                 .data(state.artworkUri)
-                .size(if (shouldUseDualPane) 400 else 800)
+                // Background akan di-blur 36.dp; ukuran 160px jauh lebih ringan di GPU/RenderThread
+                .size(160)
                 .precision(coil.size.Precision.INEXACT)
                 .allowHardware(true)
-                .crossfade(500)
+                .crossfade(400)
                 .build()
         }
 

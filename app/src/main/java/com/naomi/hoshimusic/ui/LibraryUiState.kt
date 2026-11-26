@@ -6,6 +6,7 @@ import com.naomi.hoshimusic.data.LocalPlaylist
 import com.naomi.hoshimusic.data.PlayStat
 import com.naomi.hoshimusic.data.SavedQueue
 import com.naomi.hoshimusic.data.Song
+import com.naomi.hoshimusic.domain.MusicGroup
 
 @Immutable
 internal data class LibraryUiState(
@@ -16,6 +17,16 @@ internal data class LibraryUiState(
     val playlists: List<LocalPlaylist> = emptyList(),
     val savedQueues: List<SavedQueue> = emptyList(),
     val playStats: Map<String, PlayStat> = emptyMap(),
+    val songsById: Map<String, Song> = emptyMap(),
+    val recentlyPlayed: List<Song> = emptyList(),
+    val frequentlyPlayed: List<Song> = emptyList(),
+    val carouselSongs: List<Song> = emptyList(),
+    val recentlyAdded: List<Song> = emptyList(),
+    val albumGroups: List<MusicGroup> = emptyList(),
+    val artistGroups: List<MusicGroup> = emptyList(),
+    val genreGroups: List<MusicGroup> = emptyList(),
+    val folderGroups: List<MusicGroup> = emptyList(),
+    val favoriteSongs: List<Song> = emptyList(),
     val totalListeningTimeMs: Long = 0L,
     val filterShortTracks: Boolean = false,
     val selectedMusicFolder: String? = null,

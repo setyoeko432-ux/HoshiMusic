@@ -16,6 +16,6 @@ internal fun DspSliderRow(label: String, value: Float, onChange: (Float) -> Unit
             Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Text(String.format(Locale.US, "×%.2f", value), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
-        Slider(value = value, onValueChange = onChange, valueRange = 0.5f..2f)
+        Slider(value = value, onValueChange = onChange, valueRange = 0f..2f)
     }
 }

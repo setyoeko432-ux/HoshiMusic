@@ -73,11 +73,11 @@ object DspPresets {
         DspPreset(
             id = "dev_preference", title = "Preferensi Developer",
             subtitle = "Signature developer: bright terbuka, vokal maju, imaging luas, transien instrumen tajam",
-            params = listOf(1.25f, 1.35f, 1.45f, 0.90f, 1.30f, 1.25f, 1.30f, 1.30f, 1f, 1f, 1f, 1f, 1.30f, 0.90f, 1.10f)
+            params = listOf(1.45f, 1.55f, 1.70f, 0.80f, 1.55f, 1.45f, 1.50f, 1.35f, 1f, 1f, 1f, 1.10f, 1.45f, 0.85f, 1.20f)
         ),
         DspPreset(
             id = "analog", title = "Analog Warmth", subtitle = "Pita analog virtual: glue hangat, punch terjaga — showcase saturasi",
-            params = listOf(1.20f, 0.95f, 0.60f, 1.50f, 0.45f, 0.85f, 0.95f, 1.00f, 1.00f, 1f, 1f, 1f, 0.95f, 1.40f, 1.90f)
+            params = listOf(1.45f, 0.90f, 0.40f, 1.80f, 0.25f, 0.80f, 0.90f, 1.00f, 1.00f, 1f, 1f, 1.05f, 0.95f, 1.65f, 2.00f)
         ),
         DspPreset(
             id = "flat", title = "Flat",
@@ -86,63 +86,63 @@ object DspPresets {
         ),
         DspPreset(
             id = "warm", title = "Warm", subtitle = "Body 200–500 Hz naik, treble rileks — analog & nyaman",
-            params = listOf(1.30f, 0.90f, 0.65f, 1.60f, 0.40f, 0.85f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1f, 0.85f, 1.40f, 1.15f)
+            params = listOf(1.60f, 0.80f, 0.35f, 1.85f, 0.20f, 0.75f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1.10f, 0.80f, 1.65f, 1.50f)
         ),
         DspPreset(
             id = "bright", title = "Bright", subtitle = "Kilau udara & detail dinaikkan — terbuka namun terkontrol",
-            params = listOf(0.80f, 1.10f, 1.75f, 0.80f, 1.55f, 1.15f, 1.10f, 1.45f, 1.00f, 1f, 1f, 1f, 1.25f, 0.85f, 0.70f)
+            params = listOf(0.55f, 1.20f, 2.00f, 0.60f, 1.90f, 1.30f, 1.20f, 1.55f, 1.00f, 1f, 1f, 1f, 1.45f, 0.75f, 0.55f)
         ),
         DspPreset(
             id = "soft", title = "Soft", subtitle = "Transien & treble diredam, AGC lembut — halus di telinga",
-            params = listOf(0.95f, 0.80f, 0.50f, 1.15f, 0.30f, 0.65f, 1.00f, 1.20f, 1.00f, 1.20f, 0.80f, 1f, 0.65f, 1.15f, 0.80f)
+            params = listOf(0.90f, 0.70f, 0.25f, 1.25f, 0.15f, 0.45f, 0.95f, 1.30f, 1.00f, 1.35f, 0.75f, 1f, 0.45f, 1.20f, 0.70f)
         ),
         DspPreset(
             id = "bass_boost", title = "Bass Boost", subtitle = "Low shelf ~105 Hz didorong kuat — dentum dalam & tebal",
-            params = listOf(2.00f, 0.95f, 0.90f, 1.10f, 0.80f, 1.10f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1f, 1.50f, 1.30f, 1.40f)
+            params = listOf(2.00f, 0.90f, 0.85f, 1.20f, 0.70f, 1.25f, 1.00f, 1.00f, 1.00f, 1f, 1f, 1.15f, 1.75f, 1.55f, 1.65f)
         ),
         DspPreset(
             id = "vocal", title = "Vocal Clarity", subtitle = "Presence 2–4 kHz maju — vokal jernih di depan",
-            params = listOf(0.85f, 1.70f, 1.10f, 0.85f, 1.10f, 1.05f, 0.95f, 1.50f, 1.00f, 1f, 1f, 1f, 1.10f, 0.95f, 1.15f)
+            params = listOf(0.60f, 2.00f, 1.25f, 0.65f, 1.25f, 1.15f, 0.85f, 1.65f, 1.00f, 1f, 1f, 1f, 1.15f, 0.85f, 1.10f)
         ),
         DspPreset(
             id = "stage", title = "Instrum. Stage", subtitle = "Stereo melebar, transien terjaga — panggung instrument luas",
-            params = listOf(1.00f, 0.85f, 1.35f, 0.85f, 1.20f, 1.20f, 1.65f, 1.10f, 0.80f, 1f, 1f, 1f, 1.30f, 1.00f, 0.90f)
+            params = listOf(1.00f, 0.75f, 1.65f, 0.75f, 1.40f, 1.50f, 1.95f, 1.15f, 0.55f, 1f, 1f, 1f, 1.50f, 0.95f, 0.85f)
         ),
         DspPreset(
             id = "v_shape", title = "V-Shaped", subtitle = "Bass & treble energik, midland mundur — karakter V ala Head-Fi",
-            params = listOf(1.75f, 0.65f, 1.65f, 0.80f, 1.35f, 1.20f, 1.25f, 1.25f, 1.00f, 1f, 1f, 1f, 1.40f, 1.10f, 1.20f)
+            params = listOf(1.95f, 0.45f, 1.95f, 0.60f, 1.70f, 1.40f, 1.45f, 1.35f, 1.00f, 1f, 1f, 1.15f, 1.60f, 1.15f, 1.35f)
         ),
         DspPreset(
             id = "late_night", title = "Late Night", subtitle = "Dinamika dipadatkan, loudness lembut — aman untuk volume rendah",
-            params = listOf(1.15f, 0.90f, 0.80f, 1.10f, 0.50f, 0.60f, 1.00f, 1.10f, 1.00f, 1.40f, 0.60f, 1.70f, 0.60f, 1.20f, 1.25f)
+            params = listOf(1.30f, 0.85f, 0.55f, 1.15f, 0.35f, 0.45f, 1.00f, 1.15f, 1.00f, 1.75f, 0.55f, 2.00f, 0.45f, 1.35f, 1.35f)
         ),
         DspPreset(
             id = "tube_warmth", title = "Vintage Tube", subtitle = "Karakter tabung klasik: harmoni hangat, low-end tebal, dan high yang halus",
-            params = listOf(1.20f, 1.05f, 0.70f, 1.65f, 0.80f, 0.90f, 0.95f, 1.15f, 1.00f, 1f, 1f, 1.15f, 1.00f, 1.50f, 1.85f)
+            params = listOf(1.40f, 1.05f, 0.45f, 1.90f, 0.65f, 0.85f, 0.90f, 1.20f, 1.00f, 1f, 1f, 1.30f, 0.95f, 1.75f, 2.00f)
         ),
         DspPreset(
             id = "air_shimmer", title = "Crystal Air", subtitle = "Ekstrem high-end detail: kilau instrumen dan separasi ruang yang maksimal",
-            params = listOf(0.90f, 1.00f, 2.00f, 0.70f, 1.90f, 1.20f, 1.45f, 1.55f, 1.00f, 1f, 1f, 1f, 1.20f, 0.80f, 0.55f)
+            params = listOf(0.70f, 1.05f, 2.00f, 0.50f, 2.00f, 1.35f, 1.70f, 1.65f, 1.00f, 1f, 1f, 1f, 1.35f, 0.70f, 0.40f)
         ),
         DspPreset(
             id = "podcast_voice", title = "Podcast Voice",
             subtitle = "Speech-first: rumble dan mud dipangkas, presence vokal maju, sibilance dijaga",
-            params = listOf(0.75f, 1.55f, 1.00f, 0.70f, 0.55f, 0.80f, 0.90f, 1.45f, 0.80f, 1.10f, 1.00f, 1.00f, 0.80f, 0.85f, 0.75f)
+            params = listOf(0.45f, 1.95f, 1.10f, 0.45f, 0.35f, 0.70f, 0.75f, 1.70f, 0.65f, 1.45f, 1.00f, 1.00f, 0.75f, 0.75f, 0.65f)
         ),
         DspPreset(
             id = "acoustic", title = "Acoustic",
             subtitle = "Natural dan organik: warmth ringan, artikulasi gitar/piano, air yang halus",
-            params = listOf(1.10f, 1.15f, 1.25f, 1.15f, 1.05f, 1.10f, 1.15f, 1.05f, 0.90f, 1.00f, 1.00f, 1.05f, 1.05f, 1.05f, 0.85f)
+            params = listOf(1.15f, 1.35f, 1.45f, 1.25f, 1.15f, 1.35f, 1.30f, 1.10f, 0.85f, 1.00f, 1.00f, 1.05f, 1.25f, 1.15f, 0.75f)
         ),
         DspPreset(
             id = "cinematic", title = "Cinematic",
             subtitle = "Skala besar: low-end dalam, panggung lebar, body dan ambience tetap terkendali",
-            params = listOf(1.40f, 0.95f, 1.20f, 1.20f, 0.95f, 1.05f, 1.40f, 1.00f, 1.00f, 0.95f, 1.05f, 1.20f, 1.10f, 1.20f, 1.10f)
+            params = listOf(1.75f, 0.85f, 1.35f, 1.45f, 1.00f, 1.15f, 1.80f, 1.00f, 1.00f, 0.90f, 1.10f, 1.40f, 1.20f, 1.45f, 1.30f)
         ),
         DspPreset(
             id = "lofi", title = "Lo-Fi Tape",
             subtitle = "Tekstur santai: treble disaring, mid-body hangat, transien lembut, saturasi pita terasa",
-            params = listOf(1.20f, 0.80f, 0.55f, 1.40f, 0.35f, 0.70f, 0.85f, 1.00f, 1.00f, 1.05f, 0.90f, 1.00f, 0.75f, 1.30f, 1.50f)
+            params = listOf(1.35f, 0.65f, 0.20f, 1.75f, 0.10f, 0.50f, 0.70f, 1.00f, 1.00f, 1.10f, 0.85f, 1.00f, 0.55f, 1.55f, 1.85f)
         )
     )
 
